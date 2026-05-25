@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ENV/
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# TestDisk (large binaries)
+testdisk-7.3-WIP/
+
+# Screenshots
+screenshot*.png
+screenshot*.jpg
+
+# Logs
+*.log
+err.txt
+out.txt
+stdout.log
+stderr.log
+
+# Recuva installer
+Recuva_*.exe
+Recuva_*.yaml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
