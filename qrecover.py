@@ -31,6 +31,12 @@ IS_WIN = sys.platform == "win32"
 
 app = Flask(__name__)
 
+# ─────────── Routes ───────────
+@app.route('/')
+def index():
+    """Render main page"""
+    return render_template_string(HTML)
+
 # ─────────── Helpers ───────────
 def get_drives():
     """获取 Windows 驱动器列表"""
