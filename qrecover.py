@@ -104,6 +104,33 @@ HTML = """
             margin-bottom: 30px;
             font-size: 0.9rem;
         }
+        /* 61儿童节元素 🎈 */
+        .children-day-banner {
+            background: linear-gradient(135deg, #f5c2e7, #89b4fa, #a6e3a1);
+            border-radius: 12px;
+            padding: 12px 20px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-size: 1rem;
+            color: #1e1e2e;
+            font-weight: 600;
+            animation: bounce 2s ease-in-out infinite;
+        }
+        .banner-text {
+            margin: 0 10px;
+        }
+        .balloon {
+            font-size: 1.5rem;
+            animation: float 3s ease-in-out infinite;
+        }
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
         .tool-switch {
             display: flex;
             gap: 10px;
@@ -244,6 +271,13 @@ HTML = """
 </head>
 <body>
     <div class="container">
+        <!-- 61儿童节元素 🎈 -->
+        <div class="children-day-banner">
+            <span class="balloon">🎈</span>
+            <span class="banner-text">🎉 61儿童节快乐！数据恢复工具也童趣满满~ 🎉</span>
+            <span class="balloon">🎈</span>
+        </div>
+        
         <h1>🔧 QRecover</h1>
         <p class="subtitle">数据恢复工具</p>
 
