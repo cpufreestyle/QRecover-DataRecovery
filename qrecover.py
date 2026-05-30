@@ -65,337 +65,802 @@ def find_recuva():
     return None
 
 # ─────────── HTML 模板 ───────────
-HTML = """
-<!DOCTYPE html>
+HTML = r"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>QRecover - 数据恢复工具</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💾</text></svg>">
     <style>
+        :root {
+            --bg: #0f0f1a;
+            --surface: #1a1a2e;
+            --card: #16213e;
+            --border: #2a2a4a;
+            --text: #e8e8f0;
+            --text-dim: #8888aa;
+            --accent: #6c63ff;
+            --accent-glow: rgba(108,99,255,0.3);
+            --success: #00d68f;
+            --success-bg: rgba(0,214,143,0.12);
+            --warning: #ffaa00;
+            --warning-bg: rgba(255,170,0,0.12);
+            --danger: #ff4757;
+            --danger-bg: rgba(255,71,87,0.12);
+            --info: #54a0ff;
+            --info-bg: rgba(84,160,255,0.12);
+            --pink: #ff6b9d;
+            --cyan: #00d4ff;
+            --gradient-1: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --gradient-2: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            --gradient-3: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            --shadow-sm: 0 2px 8px rgba(0,0,0,0.2);
+            --shadow-md: 0 4px 20px rgba(0,0,0,0.3);
+            --shadow-lg: 0 8px 40px rgba(0,0,0,0.4);
+            --radius: 16px;
+            --radius-sm: 10px;
+            --radius-xs: 6px;
+        }
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        
         body {
-            font-family: 'Segoe UI', sans-serif;
-            background: #1e1e2e;
-            color: #cdd6f4;
+            font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            background: var(--bg);
+            color: var(--text);
             min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
+            overflow-x: hidden;
         }
+
+        /* 背景装饰 */
+        body::before {
+            content: '';
+            position: fixed;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: 
+                radial-gradient(circle at 20% 20%, rgba(108,99,255,0.06) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(0,212,255,0.05) 0%, transparent 50%),
+                radial-gradient(circle at 50% 50%, rgba(255,107,157,0.04) 0%, transparent 60%);
+            z-index: -1;
+            animation: bgFloat 20s ease-in-out infinite alternate;
+        }
+        @keyframes bgFloat {
+            0% { transform: translate(0, 0) rotate(0deg); }
+            100% { transform: translate(-2%, -2%) rotate(1deg); }
+        }
+
+        /* 主容器 */
         .container {
-            background: #313244;
-            border-radius: 16px;
-            padding: 40px;
-            max-width: 600px;
-            width: 100%;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            max-width: 720px;
+            margin: 0 auto;
+            padding: 30px 20px 60px;
         }
+
+        /* 头部 */
+        .header {
+            text-align: center;
+            padding: 40px 20px 35px;
+            position: relative;
+        }
+
+        .logo-icon {
+            font-size: 3.5rem;
+            display: inline-block;
+            animation: logoFloat 3s ease-in-out infinite;
+            filter: drop-shadow(0 4px 16px var(--accent-glow));
+        }
+        @keyframes logoFloat {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-8px); }
+        }
+
         h1 {
-            text-align: center;
-            font-size: 2rem;
-            margin-bottom: 10px;
-            color: #cba6f7;
+            font-size: 2.2rem;
+            font-weight: 800;
+            margin-top: 14px;
+            background: var(--gradient-1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: -0.5px;
         }
+
         .subtitle {
-            text-align: center;
-            color: #a6adc8;
-            margin-bottom: 30px;
-            font-size: 0.9rem;
+            color: var(--text-dim);
+            font-size: 0.95rem;
+            margin-top: 8px;
+            font-weight: 400;
         }
-        /* 61儿童节元素 🎈 */
+
+        /* 儿童节横幅 */
         .children-day-banner {
-            background: linear-gradient(135deg, #f5c2e7, #89b4fa, #a6e3a1);
-            border-radius: 12px;
-            padding: 12px 20px;
-            margin-bottom: 20px;
+            background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 25%, #a18cd1 50%, #fbc2eb 75%, #a6c1ee 100%);
+            background-size: 300% 300%;
+            border-radius: var(--radius);
+            padding: 14px 24px;
+            margin-bottom: 28px;
             text-align: center;
-            font-size: 1rem;
-            color: #1e1e2e;
-            font-weight: 600;
-            animation: bounce 2s ease-in-out infinite;
+            font-size: 0.95rem;
+            color: #1a1a2e;
+            font-weight: 700;
+            animation: bannerGradient 4s ease infinite, bannerBounce 2.5s ease-in-out infinite;
+            box-shadow: 0 4px 20px rgba(255,154,158,0.25), inset 0 1px 0 rgba(255,255,255,0.3);
+            position: relative;
+            overflow: hidden;
         }
-        .banner-text {
-            margin: 0 10px;
+        .children-day-banner::before {
+            content: '';
+            position: absolute;
+            top: -50%; left: -50%; width: 200%; height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.15) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        @keyframes bannerGradient {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        @keyframes bannerBounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-4px); }
         }
         .balloon {
-            font-size: 1.5rem;
-            animation: float 3s ease-in-out infinite;
+            display: inline-block;
+            animation: balloonFloat 2.5s ease-in-out infinite;
+            font-size: 1.2rem;
         }
-        @keyframes bounce {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-5px); }
+        .balloon:nth-child(2n) { animation-delay: 0.3s; }
+        .balloon:nth-child(3n) { animation-delay: 0.6s; }
+        @keyframes balloonFloat {
+            0%, 100% { transform: translateY(0) rotate(0deg); }
+            25% { transform: translateY(-10px) rotate(-5deg); }
+            75% { transform: translateY(-6px) rotate(5deg); }
         }
-        @keyframes float {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-10px); }
-        }
+
+        /* 工具切换卡片 */
         .tool-switch {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 25px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            margin-bottom: 26px;
         }
         .tool-btn {
-            flex: 1;
-            padding: 12px;
-            border: 2px solid #45475a;
-            border-radius: 8px;
-            background: #45475a;
-            color: #cdd6f4;
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 18px 16px;
             cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             text-align: center;
-            transition: all 0.2s;
-            font-size: 0.9rem;
+            position: relative;
+            overflow: hidden;
         }
-        .tool-btn:hover { border-color: #89b4fa; }
+        .tool-btn::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .tool-btn:hover {
+            border-color: var(--accent);
+            box-shadow: 0 4px 20px var(--accent-glow), var(--shadow-sm);
+            transform: translateY(-2px);
+        }
         .tool-btn.active {
-            border-color: #a6e3a1;
-            background: #585b70;
+            border-color: var(--accent);
+            background: linear-gradient(135deg, rgba(108,99,255,0.15), rgba(118,75,162,0.1));
+            box-shadow: 0 4px 24px var(--accent-glow), inset 0 1px 0 rgba(255,255,255,0.05);
         }
+        .tool-btn.active::after {
+            content: '';
+            position: absolute;
+            bottom: 0; left: 50%;
+            transform: translateX(-50%);
+            width: 40px; height: 3px;
+            background: var(--accent);
+            border-radius: 3px 3px 0 0;
+        }
+        .tool-icon {
+            font-size: 2rem;
+            display: block;
+            margin-bottom: 8px;
+        }
+        .tool-name {
+            font-weight: 700;
+            font-size: 1rem;
+            color: var(--text);
+            margin-bottom: 4px;
+        }
+        .tool-desc {
+            font-size: 0.78rem;
+            color: var(--text-dim);
+        }
+        .tool-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.65rem;
+            font-weight: 600;
+            margin-top: 8px;
+            letter-spacing: 0.5px;
+        }
+        .badge-cli { background: var(--info-bg); color: var(--info); }
+        .badge-gui { background: var(--success-bg); color: var(--success); }
+        .tool-btn.disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        /* 区块标题 */
         .section {
-            margin-bottom: 25px;
+            margin-bottom: 22px;
         }
         .section-title {
-            font-size: 1rem;
-            color: #89b4fa;
-            margin-bottom: 12px;
-            font-weight: 600;
+            font-size: 0.88rem;
+            font-weight: 700;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
+        .section-title::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: linear-gradient(90deg, var(--border), transparent);
+        }
+
+        /* 驱动器列表 */
         .drive-list {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-            gap: 10px;
-            margin-bottom: 15px;
+            grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+            gap: 12px;
         }
         .drive-card {
-            background: #45475a;
-            border: 2px solid transparent;
-            border-radius: 8px;
-            padding: 12px;
-            text-align: center;
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 16px 12px;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            text-align: center;
+            position: relative;
         }
         .drive-card:hover {
-            border-color: #89b4fa;
-            background: #585b70;
+            border-color: var(--info);
+            box-shadow: 0 4px 16px rgba(84,160,255,0.15);
+            transform: translateY(-2px);
         }
         .drive-card.selected {
-            border-color: #a6e3a1;
-            background: #585b70;
+            border-color: var(--success);
+            background: linear-gradient(135deg, rgba(0,214,143,0.08), rgba(0,212,255,0.05));
+            box-shadow: 0 4px 20px rgba(0,214,143,0.15);
         }
         .drive-letter {
-            font-size: 1.5rem;
-            font-weight: bold;
-            color: #f5c2e7;
+            font-size: 1.8rem;
+            font-weight: 800;
+            background: var(--gradient-3);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
         .drive-info {
-            font-size: 0.75rem;
-            color: #a6adc8;
-            margin-top: 4px;
+            font-size: 0.72rem;
+            color: var(--text-dim);
+            margin-top: 6px;
+            line-height: 1.5;
+        }
+        .drive-bar {
+            width: 100%;
+            height: 4px;
+            background: var(--border);
+            border-radius: 2px;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+        .drive-bar-fill {
+            height: 100%;
+            border-radius: 2px;
+            transition: width 0.5s ease;
+        }
+        .bar-low { background: var(--success); }
+        .bar-mid { background: var(--warning); }
+        .bar-high { background: var(--danger); }
+
+        /* 操作按钮 */
+        .action-row {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
         }
         .btn {
-            width: 100%;
-            padding: 14px;
+            flex: 1;
+            padding: 16px 20px;
             border: none;
-            border-radius: 8px;
-            font-size: 1rem;
-            font-weight: 600;
+            border-radius: var(--radius-sm);
+            font-size: 0.98rem;
+            font-weight: 700;
             cursor: pointer;
-            transition: all 0.2s;
-            margin-bottom: 10px;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            position: relative;
+            overflow: hidden;
         }
-        .btn-primary {
-            background: #89b4fa;
-            color: #1e1e2e;
+        .btn::after {
+            content: '';
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 0; height: 0;
+            background: rgba(255,255,255,0.15);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: width 0.4s, height 0.4s;
         }
-        .btn-primary:hover { background: #74c7ec; }
-        .btn-primary:disabled {
-            background: #585b70;
-            color: #6c7086;
+        .btn:active::after { width: 300px; height: 300px; }
+        .btn-scan {
+            background: var(--gradient-1);
+            color: white;
+            box-shadow: 0 4px 16px rgba(108,99,255,0.3);
+        }
+        .btn-scan:hover:not(:disabled) {
+            box-shadow: 0 6px 24px rgba(108,99,255,0.45);
+            transform: translateY(-2px);
+        }
+        .btn-recover {
+            background: linear-gradient(135deg, #11998e, #38ef7d);
+            color: white;
+            box-shadow: 0 4px 16px rgba(56,239,125,0.3);
+        }
+        .btn-recover:hover:not(:disabled) {
+            box-shadow: 0 6px 24px rgba(56,239,125,0.45);
+            transform: translateY(-2px);
+        }
+        .btn:disabled {
+            opacity: 0.35;
             cursor: not-allowed;
+            box-shadow: none !important;
+            transform: none !important;
         }
-        .btn-success {
-            background: #a6e3a1;
-            color: #1e1e2e;
-        }
-        .btn-success:hover { background: #94e2d5; }
-        .btn-info {
-            background: #f5c2e7;
-            color: #1e1e2e;
-        }
-        .btn-info:hover { background: #eba0ac; }
-        .status {
-            margin-top: 15px;
-            padding: 12px;
-            border-radius: 8px;
-            font-size: 0.9rem;
+
+        /* 进度条 */
+        .progress-wrap {
+            margin-bottom: 16px;
             display: none;
         }
-        .status.show { display: block; }
-        .status.success { background: #a6e3a1; color: #1e1e2e; }
-        .status.error { background: #f38ba8; color: #1e1e2e; }
-        .status.info { background: #89b4fa; color: #1e1e2e; }
+        .progress-wrap.show { display: block; }
+        .progress-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.78rem;
+            color: var(--text-dim);
+            margin-bottom: 6px;
+        }
         .progress-bar {
             width: 100%;
             height: 8px;
-            background: #45475a;
+            background: var(--border);
             border-radius: 4px;
             overflow: hidden;
+            position: relative;
+        }
+        .progress-fill {
+            height: 100%;
+            width: 0%;
+            background: var(--gradient-3);
+            border-radius: 4px;
+            transition: width 0.5s ease;
+            position: relative;
+        }
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0; right: 0; bottom: 0;
+            width: 40px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3));
+            animation: progressShine 1.5s ease-in-out infinite;
+        }
+        @keyframes progressShine {
+            0% { opacity: 0; transform: translateX(-40px); }
+            50% { opacity: 1; }
+            100% { opacity: 0; transform: translateX(40px); }
+        }
+        .progress-fill.indeterminate {
+            width: 40% !important;
+            animation: indeterminate 1.8s ease-in-out infinite;
+        }
+        @keyframes indeterminate {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(350%); }
+        }
+
+        /* 状态消息 */
+        .status {
+            padding: 14px 18px;
+            border-radius: var(--radius-xs);
+            font-size: 0.88rem;
+            display: none;
+            align-items: center;
+            gap: 10px;
+            line-height: 1.5;
+            animation: statusIn 0.3s ease;
+        }
+        @keyframes statusIn {
+            from { opacity: 0; transform: translateY(-8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .status.show { display: flex; }
+        .status.success { background: var(--success-bg); color: var(--success); border-left: 3px solid var(--success); }
+        .status.error { background: var(--danger-bg); color: var(--danger); border-left: 3px solid var(--danger); }
+        .status.info { background: var(--info-bg); color: var(--info); border-left: 3px solid var(--info); }
+        .status.warning { background: var(--warning-bg); color: var(--warning); border-left: 3px solid var(--warning); }
+        .status-icon { font-size: 1.2rem; flex-shrink: 0; }
+
+        /* 工具提示 */
+        .tool-hint {
+            font-size: 0.76rem;
+            color: var(--text-dim);
+            text-align: center;
+            padding: 10px;
+            background: rgba(255,170,0,0.06);
+            border: 1px dashed var(--warning);
+            border-radius: var(--radius-xs);
             margin-top: 10px;
             display: none;
         }
-        .progress-bar.show { display: block; }
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #89b4fa, #a6e3a1);
-            border-radius: 4px;
-            animation: progress-anim 2s ease-in-out infinite;
-        }
-        .tool-btn.disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            border-color: #45475a;
-        }
-        .tool-btn.disabled:hover {
-            border-color: #45475a;
-            background: #45475a;
-        }
-        .tool-hint {
+        .tool-hint.show { display: block; }
+
+        /* 底部信息 */
+        .footer {
+            text-align: center;
+            padding: 30px 0 10px;
+            color: var(--text-dim);
             font-size: 0.75rem;
-            color: #a6adc8;
-            margin-top: 4px;
+            opacity: 0.5;
+        }
+
+        /* 响应式 */
+        @media (max-width: 480px) {
+            .container { padding: 16px 12px 40px; }
+            h1 { font-size: 1.7rem; }
+            .logo-icon { font-size: 2.8rem; }
+            .header { padding: 24px 12px 24px; }
+            .action-row { flex-direction: column; }
+            .drive-list { grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); }
+            .children-day-banner { font-size: 0.85rem; padding: 11px 16px; }
+        }
+
+        /* 加载动画 */
+        .loading-dot {
+            display: inline-block;
+            animation: dotPulse 1.2s ease-in-out infinite;
+        }
+        .loading-dot:nth-child(2) { animation-delay: 0.2s; }
+        .loading-dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes dotPulse {
+            0%, 80%, 100% { opacity: 0.3; }
+            40% { opacity: 1; }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <!-- 61儿童节元素 🎈 -->
+        <!-- 头部 -->
+        <div class="header">
+            <div class="logo-icon">💾</div>
+            <h1>QRecover</h1>
+            <p class="subtitle">专业数据恢复工具集</p>
+        </div>
+
+        <!-- 61儿童节横幅 🎈 -->
         <div class="children-day-banner">
             <span class="balloon">🎈</span>
-            <span class="banner-text">🎉 61儿童节快乐！数据恢复工具也童趣满满~ 🎉</span>
+            <span>🎉 61儿童节快乐！数据恢复也充满童趣~ ✨</span>
             <span class="balloon">🎈</span>
         </div>
-        
-        <h1>🔧 QRecover</h1>
-        <p class="subtitle">数据恢复工具</p>
 
         <!-- 工具切换 -->
         <div class="tool-switch">
             <div class="tool-btn active" id="btnTestDisk" onclick="switchTool('testdisk')">
-                🛠️ TestDisk<br><small>命令行界面</small>
+                <span class="tool-icon">🛠️</span>
+                <div class="tool-name">TestDisk</div>
+                <div class="tool-desc">分区表修复 & 文件恢复</div>
+                <span class="tool-badge badge-cli">CLI / TUI</span>
             </div>
             <div class="tool-btn" id="btnRecuva" onclick="switchTool('recuva')">
-                🎨 Recuva<br><small>图形界面</small>
+                <span class="tool-icon">🎨</span>
+                <div class="tool-name">Recuva</div>
+                <div class="tool-desc">图形化文件恢复向导</div>
+                <span class="tool-badge badge-gui">GUI</span>
             </div>
         </div>
 
         <!-- 驱动器选择 -->
         <div class="section">
-            <div class="section-title">📀 选择驱动器</div>
+            <div class="section-title">📀 选择目标驱动器</div>
             <div class="drive-list" id="driveList"></div>
         </div>
 
         <!-- 操作按钮 -->
-        <div class="section">
-            <button class="btn btn-primary" id="btnScan" disabled onclick="scanDrive()">
+        <div class="action-row">
+            <button class="btn btn-scan" id="btnScan" disabled onclick="scanDrive()">
                 🔍 扫描磁盘
             </button>
-            <button class="btn btn-success" id="btnRecover" disabled onclick="recoverFiles()">
+            <button class="btn btn-recover" id="btnRecover" disabled onclick="recoverFiles()">
                 💾 恢复文件
             </button>
         </div>
 
         <!-- 进度条 -->
-        <div class="progress-bar" id="progressBar">
-            <div class="progress-fill"></div>
+        <div class="progress-wrap" id="progressWrap">
+            <div class="progress-label">
+                <span id="progressText">正在处理...</span>
+                <span id="progressPercent"></span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
         </div>
 
-        <!-- 状态 -->
+        <!-- 状态消息 -->
         <div class="status" id="status"></div>
+
+        <!-- 工具提示 -->
+        <div class="tool-hint" id="recuvaHint">
+            ⚠️ Recuva 未安装。请先安装 Recuva 或使用 TestDisk 进行恢复。
+        </div>
+
+        <!-- 底部 -->
+        <div class="footer">
+            QRecover v1.1.0 · Powered by Flask · 💻 Made with ❤️
+        </div>
     </div>
 
     <script>
         let selectedDrive = null;
         let currentTool = 'testdisk';
+        let isProcessing = false;
 
         // 切换工具
         function switchTool(tool) {
+            if (isProcessing) return;
             currentTool = tool;
-            document.getElementById('btnTestDisk').classList.remove('active');
-            document.getElementById('btnRecuva').classList.remove('active');
-            document.getElementById('btn' + tool.charAt(0).toUpperCase() + tool.slice(1)).classList.add('active');
+            
+            document.getElementById('btnTestDisk').classList.toggle('active', tool === 'testdisk');
+            document.getElementById('btnRecuva').classList.toggle('active', tool === 'recuva');
+            
+            // 更新按钮状态
+            updateButtons();
+        }
+
+        // 更新按钮状态
+        function updateButtons() {
+            const canAct = selectedDrive && !isProcessing;
+            document.getElementById('btnScan').disabled = !canAct;
+            document.getElementById('btnRecover').disabled = !canAct;
         }
 
         // 加载驱动器
         async function loadDrives() {
-            const res = await fetch('/api/drives');
-            const drives = await res.json();
-            const list = document.getElementById('driveList');
-            list.innerHTML = '';
-            drives.forEach(d => {
-                const card = document.createElement('div');
-                card.className = 'drive-card';
-                card.innerHTML = `
-                    <div class="drive-letter">${d.letter}:</div>
-                    <div class="drive-info">${d.total} GB</div>
-                    <div class="drive-info">已用 ${d.used}</div>
-                `;
-                card.onclick = () => selectDrive(d.letter, card);
-                list.appendChild(card);
-            });
+            try {
+                const res = await fetch('/api/drives');
+                const drives = await res.json();
+                const list = document.getElementById('driveList');
+                
+                // 保留选中状态
+                const prevSelected = selectedDrive;
+                list.innerHTML = '';
+                
+                if (drives.length === 0) {
+                    list.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text-dim);padding:24px;">未检测到可用驱动器</div>';
+                    return;
+                }
+                
+                drives.forEach(d => {
+                    const card = document.createElement('div');
+                    card.className = 'drive-card' + (d.letter === prevSelected ? ' selected' : '');
+                    
+                    const usedPercent = parseInt(d.used) || 0;
+                    let barClass = 'bar-low';
+                    if (usedPercent > 80) barClass = 'bar-high';
+                    else if (usedPercent > 50) barClass = 'bar-mid';
+                    
+                    card.innerHTML = `
+                        <div class="drive-letter">${d.letter}:</div>
+                        <div class="drive-info">${d.total} GB 总容量</div>
+                        <div class="drive-info">${d.free} GB 可用</div>
+                        <div class="drive-bar"><div class="drive-bar-fill ${barClass}" style="width:${d.used}"></div></div>
+                    `;
+                    card.onclick = () => selectDrive(d.letter, card);
+                    list.appendChild(card);
+                });
+            } catch (e) {
+                showStatus('error', '加载驱动器列表失败：' + e.message);
+            }
         }
 
         function selectDrive(letter, card) {
+            if (isProcessing) return;
             selectedDrive = letter;
             document.querySelectorAll('.drive-card').forEach(c => c.classList.remove('selected'));
             card.classList.add('selected');
-            document.getElementById('btnScan').disabled = false;
-            document.getElementById('btnRecover').disabled = false;
+            updateButtons();
         }
 
-        async function scanDrive() {
-            if (!selectedDrive) return;
-            showStatus('info', `正在启动 ${currentTool} 扫描 ${selectedDrive} 盘...`);
-            document.getElementById('progressBar').classList.add('show');
-            const res = await fetch(`/api/scan?drive=${selectedDrive}&tool=${currentTool}`);
-            const data = await res.json();
-            document.getElementById('progressBar').classList.remove('show');
-            if (data.status === 'ok') {
-                showStatus('success', data.message);
+        // 显示进度
+        function showProgress(text, percent) {
+            const wrap = document.getElementById('progressWrap');
+            const fill = document.getElementById('progressFill');
+            const txt = document.getElementById('progressText');
+            const pct = document.getElementById('progressPercent');
+            
+            wrap.classList.add('show');
+            fill.classList.remove('indeterminate');
+            txt.textContent = text || '正在处理...';
+            
+            if (percent !== undefined && percent !== null) {
+                fill.style.width = percent + '%';
+                pct.textContent = percent + '%';
             } else {
-                showStatus('error', data.message);
+                fill.classList.add('indeterminate');
+                pct.textContent = '';
             }
         }
 
-        async function recoverFiles() {
-            if (!selectedDrive) return;
-            showStatus('info', `正在启动 ${currentTool} 恢复 ${selectedDrive} 盘文件...`);
-            document.getElementById('progressBar').classList.add('show');
-            const res = await fetch(`/api/recover?drive=${selectedDrive}&tool=${currentTool}`);
-            const data = await res.json();
-            document.getElementById('progressBar').classList.remove('show');
-            if (data.status === 'ok') {
-                showStatus('success', data.message);
-            } else {
-                showStatus('error', data.message);
-            }
+        function hideProgress() {
+            document.getElementById('progressWrap').classList.remove('show');
+            const fill = document.getElementById('progressFill');
+            fill.classList.remove('indeterminate');
+            fill.style.width = '0%';
         }
 
+        // 显示状态消息
         function showStatus(type, msg) {
             const el = document.getElementById('status');
+            const icons = { success: '✅', error: '❌', info: 'ℹ️', warning: '⚠️' };
             el.className = `status show ${type}`;
-            el.textContent = `[${type.toUpperCase()}] ${msg}`;
+            el.innerHTML = `<span class="status-icon">${icons[type] || '📋'}</span><span>${msg}</span>`;
+        }
+
+        function hideStatus() {
+            document.getElementById('status').className = 'status';
+        }
+
+        // 扫描
+        async function scanDrive() {
+            if (!selectedDrive || isProcessing) return;
+            isProcessing = true;
+            updateButtons();
+            
+            showProgress(`正在启动 ${currentTool === 'testdisk' ? 'TestDisk' : 'Recuva'} 扫描 ${selectedDrive}: 盘...`);
+            hideStatus();
+            
+            try {
+                const res = await fetch(`/api/scan?drive=${selectedDrive}&tool=${currentTool}`);
+                const data = await res.json();
+                
+                // 模拟进度动画
+                let p = 0;
+                const interval = setInterval(() => {
+                    p += Math.random() * 15 + 5;
+                    if (p >= 90) { p = 90; clearInterval(interval); }
+                    const fill = document.getElementById('progressFill');
+                    fill.classList.remove('indeterminate');
+                    fill.style.width = p + '%';
+                    document.getElementById('progressPercent').textContent = Math.round(p) + '%';
+                }, 300);
+                
+                setTimeout(() => {
+                    clearInterval(interval);
+                    hideProgress();
+                    if (data.status === 'ok') {
+                        showStatus('success', data.message);
+                    } else {
+                        showStatus('error', data.message);
+                    }
+                    isProcessing = false;
+                    updateButtons();
+                }, 1500);
+            } catch (e) {
+                hideProgress();
+                showStatus('error', '网络请求失败：' + e.message);
+                isProcessing = false;
+                updateButtons();
+            }
+        }
+
+        // 恢复
+        async function recoverFiles() {
+            if (!selectedDrive || isProcessing) return;
+            isProcessing = true;
+            updateButtons();
+            
+            showProgress(`正在启动 ${currentTool === 'testdisk' ? 'PhotoRec' : 'Recuva'} 恢复 ${selectedDrive}: 盘文件...`);
+            hideStatus();
+            
+            try {
+                const res = await fetch(`/api/recover?drive=${selectedDrive}&tool=${currentTool}`);
+                const data = await res.json();
+                
+                let p = 0;
+                const interval = setInterval(() => {
+                    p += Math.random() * 12 + 3;
+                    if (p >= 90) { p = 90; clearInterval(interval); }
+                    const fill = document.getElementById('progressFill');
+                    fill.classList.remove('indeterminate');
+                    fill.style.width = p + '%';
+                    document.getElementById('progressPercent').textContent = Math.round(p) + '%';
+                }, 350);
+                
+                setTimeout(() => {
+                    clearInterval(interval);
+                    hideProgress();
+                    if (data.status === 'ok') {
+                        showStatus('success', data.message);
+                    } else {
+                        showStatus('error', data.message);
+                    }
+                    isProcessing = false;
+                    updateButtons();
+                }, 1800);
+            } catch (e) {
+                hideProgress();
+                showStatus('error', '网络请求失败：' + e.message);
+                isProcessing = false;
+                updateButtons();
+            }
+        }
+
+        // 检查工具状态
+        async function checkTools() {
+            try {
+                const res = await fetch('/api/tools');
+                const tools = await res.json();
+                
+                const recuvaBtn = document.getElementById('btnRecuva');
+                const hint = document.getElementById('recuvaHint');
+                
+                if (!tools.recuva) {
+                    recuvaBtn.classList.add('disabled');
+                    hint.classList.add('show');
+                    if (currentTool === 'recuva') {
+                        switchTool('testdisk');
+                    }
+                } else {
+                    recuvaBtn.classList.remove('disabled');
+                    hint.classList.remove('show');
+                }
+                
+                if (!tools.testdisk) {
+                    document.getElementById('btnTestDisk').classList.add('disabled');
+                }
+            } catch (e) {
+                console.warn('工具检测失败:', e);
+            }
         }
 
         // 初始化
-        loadDrives();
-        setInterval(loadDrives, 10000);
+        async function init() {
+            await checkTools();
+            await loadDrives();
+        }
+
+        init();
+        setInterval(loadDrives, 15000);
     </script>
 </body>
-</html>
-"""
+</html>"""
 
 @app.route('/api/tools')
 def api_tools():
@@ -432,23 +897,21 @@ def api_scan():
         return jsonify({"status": "error", "message": "No drive specified"})
     
     if tool == 'testdisk':
-        # 使用 TestDisk
         if not os.path.isfile(TESTDISK_EXE):
             return jsonify({"status": "error", "message": f"TestDisk not found at {TESTDISK_EXE}"})
         try:
             subprocess.Popen([TESTDISK_EXE], shell=True)
-            return jsonify({"status": "ok", "message": f"TestDisk opened for drive {drive}. Please use the TestDisk window to scan."})
+            return jsonify({"status": "ok", "message": f"✅ TestDisk 已启动，请在 TestDisk 窗口中选择 {drive}: 盘进行扫描操作。"})
         except Exception as e:
             return jsonify({"status": "error", "message": f"Failed to start TestDisk: {e}"})
     
     elif tool == 'recuva':
-        # 使用 Recuva
         recuva = find_recuva()
         if not recuva:
-            return jsonify({"status": "error", "message": "Recuva not found. Please install Recuva first."})
+            return jsonify({"status": "error", "message": "Recuva 未找到，请先安装 Recuva。"})
         try:
             subprocess.Popen([recuva], shell=True)
-            return jsonify({"status": "ok", "message": f"Recuva opened for drive {drive}. Please use the Recuva window to scan."})
+            return jsonify({"status": "ok", "message": f"✅ Recuva 已启动，请在 Recuva 窗口中选择 {drive}: 盘进行扫描。"})
         except Exception as e:
             return jsonify({"status": "error", "message": f"Failed to start Recuva: {e}"})
     
@@ -463,23 +926,21 @@ def api_recover():
     os.makedirs(out_dir, exist_ok=True)
     
     if tool == 'testdisk':
-        # 使用 PhotoRec
         if not os.path.isfile(PHOTOREC_EXE):
             return jsonify({"status": "error", "message": f"PhotoRec not found at {PHOTOREC_EXE}"})
         try:
             subprocess.Popen([PHOTOREC_EXE], shell=True)
-            return jsonify({"status": "ok", "message": f"PhotoRec opened. Output folder: {out_dir}"})
+            return jsonify({"status": "ok", "message": f"✅ PhotoRec 已启动！恢复的文件将保存到: {out_dir}"})
         except Exception as e:
             return jsonify({"status": "error", "message": f"Failed to start PhotoRec: {e}"})
     
     elif tool == 'recuva':
-        # 使用 Recuva（恢复功能在同一个 GUI 里）
         recuva = find_recuva()
         if not recuva:
-            return jsonify({"status": "error", "message": "Recuva not found. Please install Recuva first."})
+            return jsonify({"status": "error", "message": "Recuva 未找到，请先安装 Recuva。"})
         try:
             subprocess.Popen([recuva], shell=True)
-            return jsonify({"status": "ok", "message": f"Recuva opened. Please use Recuva to recover files to {out_dir}"})
+            return jsonify({"status": "ok", "message": f"✅ Recuva 已启动！请在 Recuva 中选择恢复路径: {out_dir}"})
         except Exception as e:
             return jsonify({"status": "error", "message": f"Failed to start Recuva: {e}"})
     
@@ -487,7 +948,7 @@ def api_recover():
 
 # ─────────── Main ───────────
 def main():
-    print("Starting QRecover Web UI...")
+    print("Starting QRecover Web UI v1.1.0...")
     print("Open browser at: http://127.0.0.1:5000")
     app.run(host='0.0.0.0', port=5000, debug=False)
 
