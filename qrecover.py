@@ -176,50 +176,146 @@ HTML = r"""<!DOCTYPE html>
             font-weight: 400;
         }
 
-        /* 儿童节横幅 */
+        /* ═══ 61 儿童节特别版 ═══ */
+        /* 飘浮粒子画布 */
+        #confetti-canvas {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 9999;
+        }
+        /* 节日主横幅 */
         .children-day-banner {
-            background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 25%, #a18cd1 50%, #fbc2eb 75%, #a6c1ee 100%);
-            background-size: 300% 300%;
-            border-radius: var(--radius);
-            padding: 14px 24px;
+            background: linear-gradient(135deg, #ff6b6b 0%, #ffa07a 20%, #ffd700 40%, #98fb98 60%, #87ceeb 80%, #dda0dd 100%);
+            background-size: 400% 400%;
+            border-radius: 20px;
+            padding: 22px 28px 18px;
             margin-bottom: 28px;
             text-align: center;
-            font-size: 0.95rem;
-            color: #1a1a2e;
-            font-weight: 700;
-            animation: bannerGradient 4s ease infinite, bannerBounce 2.5s ease-in-out infinite;
-            box-shadow: 0 4px 20px rgba(255,154,158,0.25), inset 0 1px 0 rgba(255,255,255,0.3);
             position: relative;
             overflow: hidden;
+            box-shadow: 0 6px 30px rgba(255,215,0,0.25), 0 2px 12px rgba(255,107,107,0.15), inset 0 1px 0 rgba(255,255,255,0.4);
+            animation: bannerGradient 6s ease infinite;
         }
         .children-day-banner::before {
             content: '';
             position: absolute;
             top: -50%; left: -50%; width: 200%; height: 200%;
-            background: radial-gradient(circle, rgba(255,255,255,0.15) 0%, transparent 70%);
+            background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.2) 0%, transparent 50%);
             pointer-events: none;
         }
+        .children-day-banner::after {
+            content: '🎀🎊🎉🧁🍭🎁';
+            position: absolute;
+            bottom: 4px; right: 14px;
+            font-size: 1rem;
+            letter-spacing: 4px;
+            opacity: 0.5;
+        }
         @keyframes bannerGradient {
+            0% { background-position: 0% 50%; }
+            25% { background-position: 50% 100%; }
+            50% { background-position: 100% 50%; }
+            75% { background-position: 50% 0%; }
+            100% { background-position: 0% 50%; }
+        }
+        .banner-title {
+            font-size: 1.3rem;
+            font-weight: 900;
+            color: #fff;
+            text-shadow: 0 2px 8px rgba(0,0,0,0.15), 0 0 20px rgba(255,255,255,0.3);
+            margin-bottom: 6px;
+            letter-spacing: 2px;
+            position: relative;
+            z-index: 1;
+        }
+        .banner-sub {
+            font-size: 0.82rem;
+            color: rgba(255,255,255,0.9);
+            font-weight: 500;
+            position: relative;
+            z-index: 1;
+        }
+        .banner-balloons {
+            position: absolute;
+            top: 6px; left: 16px;
+            font-size: 1.6rem;
+            display: flex; gap: 6px;
+        }
+        .banner-balloons span {
+            display: inline-block;
+            animation: balloonFloat 3s ease-in-out infinite;
+        }
+        .banner-balloons span:nth-child(2) { animation-delay: 0.4s; }
+        .banner-balloons span:nth-child(3) { animation-delay: 0.8s; }
+        @keyframes balloonFloat {
+            0%, 100% { transform: translateY(0) rotate(-3deg) scale(1); }
+            33% { transform: translateY(-8px) rotate(5deg) scale(1.1); }
+            66% { transform: translateY(-4px) rotate(-2deg) scale(0.95); }
+        }
+        /* 节日星星 */
+        .star-row {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        .star-row span {
+            font-size: 1rem;
+            animation: starTwinkle 2s ease-in-out infinite;
+            filter: drop-shadow(0 0 4px rgba(255,215,0,0.5));
+        }
+        .star-row span:nth-child(1) { animation-delay: 0s; color: #ffd700; }
+        .star-row span:nth-child(2) { animation-delay: 0.3s; color: #ff6b6b; }
+        .star-row span:nth-child(3) { animation-delay: 0.6s; color: #87ceeb; }
+        .star-row span:nth-child(4) { animation-delay: 0.9s; color: #98fb98; }
+        .star-row span:nth-child(5) { animation-delay: 1.2s; color: #dda0dd; }
+        @keyframes starTwinkle {
+            0%, 100% { transform: scale(1) rotate(0deg); opacity: 1; }
+            50% { transform: scale(1.3) rotate(15deg); opacity: 0.7; }
+        }
+        /* 节日装饰：工具卡片彩带 */
+        .tool-btn { border-color: var(--border); }
+        .tool-btn.active { border-color: #ffd700; }
+        .tool-btn.active::after { background: #ffd700; }
+        /* 节日装饰：按钮彩条 */
+        .btn-scan {
+            background: linear-gradient(135deg, #ff6b6b, #ffa07a, #ffd700) !important;
+            box-shadow: 0 4px 20px rgba(255,107,107,0.35) !important;
+        }
+        .btn-scan:hover:not(:disabled) {
+            box-shadow: 0 6px 28px rgba(255,107,107,0.5) !important;
+        }
+        .btn-recover {
+            background: linear-gradient(135deg, #4facfe, #00f2fe, #43e97b) !important;
+            box-shadow: 0 4px 20px rgba(67,233,123,0.35) !important;
+        }
+        .btn-recover:hover:not(:disabled) {
+            box-shadow: 0 6px 28px rgba(67,233,123,0.5) !important;
+        }
+        /* 节日装饰：logo 特效 */
+        .logo-icon { filter: drop-shadow(0 0 24px rgba(255,215,0,0.4)); }
+        /* 节日装饰：标题 */
+        h1 {
+            background: linear-gradient(135deg, #ffd700, #ff6b6b, #dda0dd, #87ceeb, #98fb98) !important;
+            background-size: 200% 200% !important;
+            -webkit-background-clip: text !important;
+            -webkit-text-fill-color: transparent !important;
+            background-clip: text !important;
+            animation: titleRainbow 4s ease infinite !important;
+        }
+        @keyframes titleRainbow {
             0% { background-position: 0% 50%; }
             50% { background-position: 100% 50%; }
             100% { background-position: 0% 50%; }
         }
-        @keyframes bannerBounce {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-4px); }
+        /* 节日装饰：驱动器卡片选中态 */
+        .drive-card.selected {
+            border-color: #ffd700;
+            box-shadow: 0 4px 20px rgba(255,215,0,0.2);
         }
-        .balloon {
-            display: inline-block;
-            animation: balloonFloat 2.5s ease-in-out infinite;
-            font-size: 1.2rem;
-        }
-        .balloon:nth-child(2n) { animation-delay: 0.3s; }
-        .balloon:nth-child(3n) { animation-delay: 0.6s; }
-        @keyframes balloonFloat {
-            0%, 100% { transform: translateY(0) rotate(0deg); }
-            25% { transform: translateY(-10px) rotate(-5deg); }
-            75% { transform: translateY(-6px) rotate(5deg); }
-        }
+        .drive-card:hover { border-color: #ff6b9d; }
 
         /* 工具切换卡片 */
         .tool-switch {
@@ -563,11 +659,15 @@ HTML = r"""<!DOCTYPE html>
             <p class="subtitle">专业数据恢复工具集</p>
         </div>
 
-        <!-- 61儿童节横幅 🎈 -->
+        <!-- ═══ 61儿童节特别版 ═══ -->
+        <canvas id="confetti-canvas"></canvas>
+        <div class="star-row">
+            <span>⭐</span><span>🌟</span><span>✨</span><span>💫</span><span>⭐</span>
+        </div>
         <div class="children-day-banner">
-            <span class="balloon">🎈</span>
-            <span>🎉 61儿童节快乐！数据恢复也充满童趣~ ✨</span>
-            <span class="balloon">🎈</span>
+            <div class="banner-balloons"><span>🎈</span><span>🎈</span><span>🎈</span></div>
+            <div class="banner-title">🎠 六一儿童节快乐！</div>
+            <div class="banner-sub">愿每个大人的心里，都住着一个快乐的小孩 🍬</div>
         </div>
 
         <!-- 工具切换 -->
@@ -858,6 +958,84 @@ HTML = r"""<!DOCTYPE html>
 
         init();
         setInterval(loadDrives, 15000);
+
+        // ═══ 61 儿童节彩屑动画 ═══
+        (function() {
+            const canvas = document.getElementById('confetti-canvas');
+            const ctx = canvas.getContext('2d');
+            let W, H;
+            const colors = ['#ff6b6b','#ffa07a','#ffd700','#98fb98','#87ceeb','#dda0dd','#ff69b4','#00ced1'];
+            const shapes = ['circle','rect','star'];
+            let particles = [];
+
+            function resize() {
+                W = canvas.width = window.innerWidth;
+                H = canvas.height = window.innerHeight;
+            }
+            resize();
+            window.addEventListener('resize', resize);
+
+            class Particle {
+                constructor() { this.reset(true); }
+                reset(init) {
+                    this.x = Math.random() * W;
+                    this.y = init ? Math.random() * H : -10;
+                    this.size = Math.random() * 6 + 3;
+                    this.color = colors[Math.floor(Math.random() * colors.length)];
+                    this.shape = shapes[Math.floor(Math.random() * shapes.length)];
+                    this.vy = Math.random() * 1.2 + 0.4;
+                    this.vx = Math.random() * 0.6 - 0.3;
+                    this.rot = Math.random() * 360;
+                    this.rotV = Math.random() * 3 - 1.5;
+                    this.opacity = Math.random() * 0.5 + 0.3;
+                }
+                update() {
+                    this.y += this.vy;
+                    this.x += this.vx + Math.sin(this.y * 0.01) * 0.3;
+                    this.rot += this.rotV;
+                    if (this.y > H + 10) this.reset(false);
+                }
+                draw() {
+                    ctx.save();
+                    ctx.translate(this.x, this.y);
+                    ctx.rotate(this.rot * Math.PI / 180);
+                    ctx.globalAlpha = this.opacity;
+                    ctx.fillStyle = this.color;
+                    if (this.shape === 'circle') {
+                        ctx.beginPath();
+                        ctx.arc(0, 0, this.size, 0, Math.PI * 2);
+                        ctx.fill();
+                    } else if (this.shape === 'rect') {
+                        ctx.fillRect(-this.size, -this.size/2, this.size*2, this.size);
+                    } else {
+                        drawStar(ctx, 0, 0, 5, this.size, this.size/2);
+                    }
+                    ctx.restore();
+                }
+            }
+
+            function drawStar(ctx, cx, cy, spikes, outerR, innerR) {
+                let rot = -Math.PI / 2;
+                const step = Math.PI / spikes;
+                ctx.beginPath();
+                for (let i = 0; i < spikes * 2; i++) {
+                    const r = i % 2 === 0 ? outerR : innerR;
+                    ctx.lineTo(cx + Math.cos(rot) * r, cy + Math.sin(rot) * r);
+                    rot += step;
+                }
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            for (let i = 0; i < 35; i++) particles.push(new Particle());
+
+            function animate() {
+                ctx.clearRect(0, 0, W, H);
+                particles.forEach(p => { p.update(); p.draw(); });
+                requestAnimationFrame(animate);
+            }
+            animate();
+        })();
     </script>
 </body>
 </html>"""
