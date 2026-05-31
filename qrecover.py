@@ -1078,8 +1078,8 @@ def api_scan():
         if not os.path.isfile(TESTDISK_EXE):
             return jsonify({"status": "error", "message": f"TestDisk not found at {TESTDISK_EXE}"})
         try:
-            subprocess.Popen([TESTDISK_EXE], shell=True)
-            return jsonify({"status": "ok", "message": f"✅ TestDisk 已启动，请在 TestDisk 窗口中选择 {drive}: 盘进行扫描操作。"})
+            subprocess.Popen([TESTDISK_EXE], creationflags=subprocess.CREATE_NEW_CONSOLE, cwd=TESTDISK_DIR)
+            return jsonify({"status": "ok", "message": f"✅ TestDisk 已在新窗口启动，请在 TestDisk 窗口中选择 {drive}: 盘进行扫描操作。"})
         except Exception as e:
             return jsonify({"status": "error", "message": f"Failed to start TestDisk: {e}"})
     
@@ -1088,7 +1088,7 @@ def api_scan():
         if not recuva:
             return jsonify({"status": "error", "message": "Recuva 未找到，请先安装 Recuva。"})
         try:
-            subprocess.Popen([recuva], shell=True)
+            subprocess.Popen([recuva])
             return jsonify({"status": "ok", "message": f"✅ Recuva 已启动，请在 Recuva 窗口中选择 {drive}: 盘进行扫描。"})
         except Exception as e:
             return jsonify({"status": "error", "message": f"Failed to start Recuva: {e}"})
@@ -1107,8 +1107,8 @@ def api_recover():
         if not os.path.isfile(PHOTOREC_EXE):
             return jsonify({"status": "error", "message": f"PhotoRec not found at {PHOTOREC_EXE}"})
         try:
-            subprocess.Popen([PHOTOREC_EXE], shell=True)
-            return jsonify({"status": "ok", "message": f"✅ PhotoRec 已启动！恢复的文件将保存到: {out_dir}"})
+            subprocess.Popen([PHOTOREC_EXE], creationflags=subprocess.CREATE_NEW_CONSOLE, cwd=TESTDISK_DIR)
+            return jsonify({"status": "ok", "message": f"✅ PhotoRec 已在新窗口启动！恢复的文件将保存到: {out_dir}"})
         except Exception as e:
             return jsonify({"status": "error", "message": f"Failed to start PhotoRec: {e}"})
     
@@ -1117,7 +1117,7 @@ def api_recover():
         if not recuva:
             return jsonify({"status": "error", "message": "Recuva 未找到，请先安装 Recuva。"})
         try:
-            subprocess.Popen([recuva], shell=True)
+            subprocess.Popen([recuva])
             return jsonify({"status": "ok", "message": f"✅ Recuva 已启动！请在 Recuva 中选择恢复路径: {out_dir}"})
         except Exception as e:
             return jsonify({"status": "error", "message": f"Failed to start Recuva: {e}"})
