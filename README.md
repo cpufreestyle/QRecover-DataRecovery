@@ -1,60 +1,74 @@
-# QRecover - TestDisk & PhotoRec 现代化 GUI 包装器
+# QRecover Web UI
 
-> 基于 TestDisk & PhotoRec（全球最优秀的开源数据恢复软件）打造的 Windows 原生 GUI
+> 基于 TestDisk、PhotoRec 和 Recuva 打造的现代化 Web 数据恢复工具
 
 ## ✨ 特性
 
-- 🎨 **Catppuccin Mocha 深色主题** — 现代化 UI，护眼舒适
-- 💾 **磁盘扫描页** — 一键启动 TestDisk 分区扫描/修复
-- 📄 **文件恢复页** — 集成 PhotoRec/QPhotoRec，支持文件类型过滤
-- 🗂️ **分区恢复向导** — 5 步引导式分区表修复流程
-- 📋 **实时日志** — 所有操作可追溯
-- 🔧 **自动检测 TestDisk 路径** — 也支持手动设置
+- 🎨 **暗色渐变主题** — 紫/青/粉渐变，动画浮动背景
+- 🎠 **六一儿童节特别版** — 彩屑动画、星星闪烁、气球浮动、彩虹横幅
+- 💾 **TestDisk** — 分区扫描/修复（TUI 新窗口启动）
+- 📄 **PhotoRec** — 文件恢复（支持图片/文档/视频等类型）
+- 🔍 **Recuva** — GUI 文件恢复工具
+- 📊 **驱动器可视化** — 彩色使用率条（绿/黄/红）
+- 🔧 **自动检测工具** — 启动时检测已安装工具，未安装则禁用
+- 🔒 **防重复点击** — 处理中锁定按钮
 
-## 🚀 使用方法
+## 🚀 快速开始
 
-### 1. 安装 TestDisk（必须）
+### 方式一：直接运行 EXE
 
-从官方下载并解压到 `C:\Tools\TestDisk`：
-https://www.cgsecurity.org/wiki/TestDisk_Download
+下载最新版 [QRecoverWeb.exe](https://gitee.com/cpufreestyle/QRecover/releases)，双击运行，浏览器访问 `http://127.0.0.1:5000`
 
-或用 winget：
-```powershell
-winget install CGSecurity.TestDisk
-```
+### 方式二：从源码运行
 
-### 2. 启动 QRecover
-
-双击 `QRecover.bat` 或运行：
 ```bash
+cd C:\Tools\TestDiskGUI
+pip install flask
 python qrecover.py
 ```
+
+然后访问 http://127.0.0.1:5000
 
 ## 📁 项目结构
 
 ```
 C:\Tools\TestDiskGUI\
-├── qrecover.py      # 主程序 (Python + tkinter)
-├── QRecover.bat     # Windows 启动器
-└── README.md        # 本文件
+├── qrecover.py              # Flask 主程序（含内嵌 HTML 模板）
+├── QRecover.bat             # Windows 启动器
+├── QRecoverWeb_latest.exe   # 打包版可执行文件
+├── testdisk-7.3-WIP/        # TestDisk/PhotoRec
+├── recuva_portable/          # Recuva 便携版
+└── README.md
 ```
+
+## 🛠️ 工具说明
+
+| 工具 | 类型 | 启动方式 |
+|------|------|----------|
+| TestDisk | TUI 分区修复 | 新控制台窗口 |
+| PhotoRec | TUI 文件恢复 | 新控制台窗口 |
+| Recuva | GUI 文件恢复 | 直接启动 |
+
+## 🎯 版本历史
+
+### v1.1.0 — 六一儿童节特别版 🎪
+- UI 全面重构：多彩渐变主题 + 动画背景
+- Canvas 全屏彩屑、星星闪烁、气球浮动
+- 彩虹渐变横幅 + 节日文案
+- 修复 TestDisk/PhotoRec 启动问题
+- 修复重复 main() 语法错误
+- 自动检测工具安装状态
+
+### v1.0.0 — 首个发布版
+- Flask Web UI 暗色主题
+- 集成 TestDisk/PhotoRec/Recuva
+- 修复根路由 404
 
 ## ⚙️ 依赖
 
-- **Python 3.8+** (tkinter 内置，无需额外安装 pip 包)
-- **TestDisk & PhotoRec 7.x** (数据恢复引擎)
-
-## 🎯 功能对比
-
-| 功能 | TestDisk 原版 | QRecover |
-|------|-------------|----------|
-| 界面 | TUI 文字菜单 | 现代 GUI |
-| 磁盘选择 | 手动输入编号 | 可视化列表 + 容量信息 |
-| 文件类型过滤 | 复杂命令行 | 单选按钮分类 |
-| 输出目录 | 手动路径输入 | 浏览器选择 |
-| 进度显示 | 滚动文字 | 进度条 + 状态指示器 |
-| 日志 | 无 | 实时日志面板 |
-| 主题 | 终端配色 | Catppuccin Mocha |
+- **Python 3.8+** + Flask
+- **TestDisk & PhotoRec 7.x**（已内置）
+- **Recuva**（便携版，已内置）
 
 ## 📜 许可证
 
@@ -62,4 +76,4 @@ GPL v2+（与 TestDisk 保持一致）
 
 ---
 
-*QRecover · 让开源数据恢复工具更易用*
+*QRecover · 让数据恢复更简单更美观* 🎈
