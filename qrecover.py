@@ -706,7 +706,7 @@ HTML = r"""<!DOCTYPE html>
 
         <!-- 底部 -->
         <div class="footer">
-            QRecover v1.1.2 · Powered by Flask · 💻 Made with ❤️
+            QRecover v1.1.3 · Powered by Flask · 💻 Made with ❤️
         </div>
     </div>
 
@@ -844,8 +844,11 @@ HTML = r"""<!DOCTYPE html>
             try {
                 const res = await fetch('/api/install_recuva');
                 const data = await res.json();
-                if (data.status === 'ok') {
-                    showStatus('info', 'Recuva 安装程序已启动，请在弹出的窗口中完成安装。');
+                if (data.status === 'ok' && data.action === 'open_url') {
+                    window.open(data.url, '_blank');
+                    showStatus('info', data.message);
+                } else if (data.status === 'ok') {
+                    showStatus('info', data.message || 'Recuva 安装程序已启动，请在弹出的窗口中完成安装。');
                 } else {
                     showStatus('error', data.message);
                 }
@@ -993,8 +996,7 @@ def api_install_recuva():
         except Exception as e:
             return jsonify({"status": "error", "message": f"启动安装程序失败: {e}"})
     else:
-        webbrowser.open(RECUVA_DOWNLOAD_URL)
-        return jsonify({"status": "ok", "message": f"本地无安装包，已打开 Recuva 官方下载页面。"})
+        return jsonify({"status": "ok", "action": "open_url", "url": RECUVA_DOWNLOAD_URL, "message": "请先下载安装 Recuva。"})
 
 @app.route('/api/drives')
 def api_drives():
@@ -1066,7 +1068,7 @@ def api_recover():
 
 # ─────────── Main ───────────
 def main():
-    print("Starting QRecover Web UI v1.1.2...")
+    print("Starting QRecover Web UI v1.1.3...")
     print("Open browser at: http://127.0.0.1:5000")
     app.run(host='0.0.0.0', port=5000, debug=False)
 
