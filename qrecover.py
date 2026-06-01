@@ -5,6 +5,7 @@ import sys
 import shutil
 import subprocess
 import ctypes
+import webbrowser
 import logging
 from flask import Flask, render_template_string, request, jsonify
 
@@ -983,17 +984,20 @@ def api_tools():
     }
     return jsonify(tools)
 
+RECUVA_DOWNLOAD_URL = 'https://www.ccleaner.com/recuva/download'
+
 @app.route('/api/install_recuva')
 def api_install_recuva():
-    """启动 Recuva 安装程序"""
+    """启动 Recuva 安装程序或打开下载页面"""
     if os.path.isfile(RECUVA_INSTALLER):
         try:
             subprocess.Popen([RECUVA_INSTALLER], shell=True)
-            return jsonify({"status": "ok", "message": "Recuva installer launched. Please install Recuva."})
+            return jsonify({"status": "ok", "message": "Recuva 安装程序已启动，请在弹出的窗口中完成安装。"})
         except Exception as e:
-            return jsonify({"status": "error", "message": f"Failed to launch installer: {e}"})
+            return jsonify({"status": "error", "message": f"启动安装程序失败: {e}"})
     else:
-        return jsonify({"status": "error", "message": "Recuva installer not found."})
+        webbrowser.open(RECUVA_DOWNLOAD_URL)
+        return jsonify({"status": "ok", "message": f"本地无安装包，已打开 Recuva 官方下载页面。"})
 
 @app.route('/api/drives')
 def api_drives():
