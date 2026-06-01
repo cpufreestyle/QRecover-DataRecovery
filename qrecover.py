@@ -9,15 +9,12 @@ import webbrowser
 import logging
 from flask import Flask, render_template_string, request, jsonify
 
-def run_as_admin(exe_path, work_dir=None, params=''):
-    """用 ShellExecuteW(runas) 启动程序，触发 UAC 提示提升权限。"""
+def run_tool(exe_path, work_dir=None):
+    """启动工具（EXE 已管理员运行，直接 Popen 即可）。"""
     if not os.path.isfile(exe_path):
         raise FileNotFoundError(f"找不到: {exe_path}")
-    ret = ctypes.windll.shell32.ShellExecuteW(
-        None, 'runas', exe_path, params, work_dir or os.path.dirname(exe_path), 1
-    )
-    if ret <= 32:
-        raise OSError(f"ShellExecuteW 失败 (code={ret})，请右键以管理员身份运行 QRecoverWeb.exe")
+    subprocess.Popen([exe_path], cwd=work_dir or os.path.dirname(exe_path))
+    return True
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -709,7 +706,7 @@ HTML = r"""<!DOCTYPE html>
 
         <!-- 底部 -->
         <div class="footer">
-            QRecover v1.1.0 · Powered by Flask · 💻 Made with ❤️
+            QRecover v1.1.2 · Powered by Flask · 💻 Made with ❤️
         </div>
     </div>
 
@@ -1017,7 +1014,7 @@ def api_scan():
         if not os.path.isfile(TESTDISK_EXE):
             return jsonify({"status": "error", "message": f"TestDisk not found at {TESTDISK_EXE}"})
         try:
-            run_as_admin(TESTDISK_EXE, TESTDISK_DIR)
+            run_tool(TESTDISK_EXE, TESTDISK_DIR)
             return jsonify({"status": "ok", "message": f"✅ TestDisk 已在新窗口启动（UAC 提示已弹出），请在 TestDisk 窗口中选择 {drive}: 盘进行扫描操作。"})
         except Exception as e:
             return jsonify({"status": "error", "message": f"Failed to start TestDisk: {e}"})
@@ -1050,7 +1047,7 @@ def api_recover():
         if not os.path.isfile(PHOTOREC_EXE):
             return jsonify({"status": "error", "message": f"PhotoRec not found at {PHOTOREC_EXE}"})
         try:
-            run_as_admin(PHOTOREC_EXE, TESTDISK_DIR)
+            run_tool(PHOTOREC_EXE, TESTDISK_DIR)
             return jsonify({"status": "ok", "message": f"✅ PhotoRec 已在新窗口启动（UAC 提示已弹出）！恢复的文件将保存到: {out_dir}"})
         except Exception as e:
             return jsonify({"status": "error", "message": f"Failed to start PhotoRec: {e}"})
@@ -1069,7 +1066,7 @@ def api_recover():
 
 # ─────────── Main ───────────
 def main():
-    print("Starting QRecover Web UI v1.1.0...")
+    print("Starting QRecover Web UI v1.1.2...")
     print("Open browser at: http://127.0.0.1:5000")
     app.run(host='0.0.0.0', port=5000, debug=False)
 
