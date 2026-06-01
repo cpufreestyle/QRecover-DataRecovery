@@ -4,6 +4,7 @@ import os
 import sys
 import shutil
 import subprocess
+import logging
 from flask import Flask, render_template_string, request, jsonify
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -13,6 +14,19 @@ if getattr(sys, 'frozen', False):
     BASE_DIR = sys._MEIPASS
 else:
     BASE_DIR = SCRIPT_DIR
+
+# ── Logging ──
+log_file = os.path.join(BASE_DIR, 'qrecover.log')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.FileHandler(log_file, encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+log = logging.getLogger(__name__)
+log.info('QRecover starting...')
 
 # TestDisk 路径
 TESTDISK_DIR = os.path.join(BASE_DIR, "testdisk-7.3-WIP")
@@ -53,7 +67,7 @@ def get_drives():
                         "free": f"{f/1024**3:.1f}",
                         "used": f"{u/t*100:.0f}%"
                     })
-                except:
+                except OSError:
                     pass
     return drives
 
@@ -275,6 +289,25 @@ HTML = r"""<!DOCTYPE html>
             0%, 100% { transform: scale(1) rotate(0deg); opacity: 1; }
             50% { transform: scale(1.3) rotate(15deg); opacity: 0.7; }
         }
+
+        /* 安装按钮 */
+        .hint-btn {
+            display: inline-block;
+            padding: 3px 10px;
+            background: var(--warning-bg);
+            color: var(--warning);
+            border: 1px solid var(--warning);
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .hint-btn:hover {
+            background: var(--warning);
+            color: #000;
+        }
+
         /* 节日装饰：工具卡片彩带 */
         .tool-btn { border-color: var(--border); }
         .tool-btn.active { border-color: #ffd700; }
@@ -530,57 +563,6 @@ HTML = r"""<!DOCTYPE html>
             transform: none !important;
         }
 
-        /* 进度条 */
-        .progress-wrap {
-            margin-bottom: 16px;
-            display: none;
-        }
-        .progress-wrap.show { display: block; }
-        .progress-label {
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.78rem;
-            color: var(--text-dim);
-            margin-bottom: 6px;
-        }
-        .progress-bar {
-            width: 100%;
-            height: 8px;
-            background: var(--border);
-            border-radius: 4px;
-            overflow: hidden;
-            position: relative;
-        }
-        .progress-fill {
-            height: 100%;
-            width: 0%;
-            background: var(--gradient-3);
-            border-radius: 4px;
-            transition: width 0.5s ease;
-            position: relative;
-        }
-        .progress-fill::after {
-            content: '';
-            position: absolute;
-            top: 0; right: 0; bottom: 0;
-            width: 40px;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3));
-            animation: progressShine 1.5s ease-in-out infinite;
-        }
-        @keyframes progressShine {
-            0% { opacity: 0; transform: translateX(-40px); }
-            50% { opacity: 1; }
-            100% { opacity: 0; transform: translateX(40px); }
-        }
-        .progress-fill.indeterminate {
-            width: 40% !important;
-            animation: indeterminate 1.8s ease-in-out infinite;
-        }
-        @keyframes indeterminate {
-            0% { transform: translateX(-100%); }
-            100% { transform: translateX(350%); }
-        }
-
         /* 状态消息 */
         .status {
             padding: 14px 18px;
@@ -702,23 +684,14 @@ HTML = r"""<!DOCTYPE html>
             </button>
         </div>
 
-        <!-- 进度条 -->
-        <div class="progress-wrap" id="progressWrap">
-            <div class="progress-label">
-                <span id="progressText">正在处理...</span>
-                <span id="progressPercent"></span>
-            </div>
-            <div class="progress-bar">
-                <div class="progress-fill" id="progressFill"></div>
-            </div>
-        </div>
-
         <!-- 状态消息 -->
         <div class="status" id="status"></div>
 
         <!-- 工具提示 -->
         <div class="tool-hint" id="recuvaHint">
-            ⚠️ Recuva 未安装。请先安装 Recuva 或使用 TestDisk 进行恢复。
+            ⚠️ Recuva 未安装。请先&nbsp;
+            <button class="hint-btn" onclick="installRecuva()">下载安装 Recuva</button>
+            &nbsp;或使用 TestDisk 进行恢复。
         </div>
 
         <!-- 底部 -->
@@ -798,33 +771,6 @@ HTML = r"""<!DOCTYPE html>
             updateButtons();
         }
 
-        // 显示进度
-        function showProgress(text, percent) {
-            const wrap = document.getElementById('progressWrap');
-            const fill = document.getElementById('progressFill');
-            const txt = document.getElementById('progressText');
-            const pct = document.getElementById('progressPercent');
-            
-            wrap.classList.add('show');
-            fill.classList.remove('indeterminate');
-            txt.textContent = text || '正在处理...';
-            
-            if (percent !== undefined && percent !== null) {
-                fill.style.width = percent + '%';
-                pct.textContent = percent + '%';
-            } else {
-                fill.classList.add('indeterminate');
-                pct.textContent = '';
-            }
-        }
-
-        function hideProgress() {
-            document.getElementById('progressWrap').classList.remove('show');
-            const fill = document.getElementById('progressFill');
-            fill.classList.remove('indeterminate');
-            fill.style.width = '0%';
-        }
-
         // 显示状态消息
         function showStatus(type, msg) {
             const el = document.getElementById('status');
@@ -842,39 +788,19 @@ HTML = r"""<!DOCTYPE html>
             if (!selectedDrive || isProcessing) return;
             isProcessing = true;
             updateButtons();
-            
-            showProgress(`正在启动 ${currentTool === 'testdisk' ? 'TestDisk' : 'Recuva'} 扫描 ${selectedDrive}: 盘...`);
             hideStatus();
-            
+
             try {
                 const res = await fetch(`/api/scan?drive=${selectedDrive}&tool=${currentTool}`);
                 const data = await res.json();
-                
-                // 模拟进度动画
-                let p = 0;
-                const interval = setInterval(() => {
-                    p += Math.random() * 15 + 5;
-                    if (p >= 90) { p = 90; clearInterval(interval); }
-                    const fill = document.getElementById('progressFill');
-                    fill.classList.remove('indeterminate');
-                    fill.style.width = p + '%';
-                    document.getElementById('progressPercent').textContent = Math.round(p) + '%';
-                }, 300);
-                
-                setTimeout(() => {
-                    clearInterval(interval);
-                    hideProgress();
-                    if (data.status === 'ok') {
-                        showStatus('success', data.message);
-                    } else {
-                        showStatus('error', data.message);
-                    }
-                    isProcessing = false;
-                    updateButtons();
-                }, 1500);
+                if (data.status === 'ok') {
+                    showStatus('success', data.message);
+                } else {
+                    showStatus('error', data.message);
+                }
             } catch (e) {
-                hideProgress();
                 showStatus('error', '网络请求失败：' + e.message);
+            } finally {
                 isProcessing = false;
                 updateButtons();
             }
@@ -885,40 +811,36 @@ HTML = r"""<!DOCTYPE html>
             if (!selectedDrive || isProcessing) return;
             isProcessing = true;
             updateButtons();
-            
-            showProgress(`正在启动 ${currentTool === 'testdisk' ? 'PhotoRec' : 'Recuva'} 恢复 ${selectedDrive}: 盘文件...`);
             hideStatus();
-            
+
             try {
                 const res = await fetch(`/api/recover?drive=${selectedDrive}&tool=${currentTool}`);
                 const data = await res.json();
-                
-                let p = 0;
-                const interval = setInterval(() => {
-                    p += Math.random() * 12 + 3;
-                    if (p >= 90) { p = 90; clearInterval(interval); }
-                    const fill = document.getElementById('progressFill');
-                    fill.classList.remove('indeterminate');
-                    fill.style.width = p + '%';
-                    document.getElementById('progressPercent').textContent = Math.round(p) + '%';
-                }, 350);
-                
-                setTimeout(() => {
-                    clearInterval(interval);
-                    hideProgress();
-                    if (data.status === 'ok') {
-                        showStatus('success', data.message);
-                    } else {
-                        showStatus('error', data.message);
-                    }
-                    isProcessing = false;
-                    updateButtons();
-                }, 1800);
+                if (data.status === 'ok') {
+                    showStatus('success', data.message);
+                } else {
+                    showStatus('error', data.message);
+                }
             } catch (e) {
-                hideProgress();
                 showStatus('error', '网络请求失败：' + e.message);
+            } finally {
                 isProcessing = false;
                 updateButtons();
+            }
+        }
+
+        // 安装 Recuva
+        async function installRecuva() {
+            try {
+                const res = await fetch('/api/install_recuva');
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    showStatus('info', 'Recuva 安装程序已启动，请在弹出的窗口中完成安装。');
+                } else {
+                    showStatus('error', data.message);
+                }
+            } catch (e) {
+                showStatus('error', '启动安装程序失败：' + e.message);
             }
         }
 
@@ -1071,8 +993,9 @@ def api_scan():
     drive = request.args.get('drive', '')
     tool = request.args.get('tool', 'testdisk')
     
-    if not drive:
-        return jsonify({"status": "error", "message": "No drive specified"})
+    if not drive or len(drive) != 1 or not drive.isalpha():
+        log.warning(f'Invalid drive param: {drive!r}')
+        return jsonify({"status": "error", "message": "无效的盘符参数"}), 400
     
     if tool == 'testdisk':
         if not os.path.isfile(TESTDISK_EXE):
@@ -1102,7 +1025,11 @@ def api_recover():
     tool = request.args.get('tool', 'testdisk')
     out_dir = request.args.get('out', os.path.expanduser("~\\Recovered"))
     os.makedirs(out_dir, exist_ok=True)
-    
+
+    if not drive or len(drive) != 1 or not drive.isalpha():
+        log.warning('Invalid drive param in recover: %r', drive)
+        return jsonify({"status": "error", "message": "无效的盘符参数"}), 400
+
     if tool == 'testdisk':
         if not os.path.isfile(PHOTOREC_EXE):
             return jsonify({"status": "error", "message": f"PhotoRec not found at {PHOTOREC_EXE}"})
