@@ -10,8 +10,9 @@ from flask import Flask, render_template_string, request, jsonify
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # PyInstaller 打包后路径处理
+# onedir 模式：外部文件放在 EXE 旁边，不用打包进 EXE
 if getattr(sys, 'frozen', False):
-    BASE_DIR = sys._MEIPASS
+    BASE_DIR = os.path.dirname(sys.executable)
 else:
     BASE_DIR = SCRIPT_DIR
 
