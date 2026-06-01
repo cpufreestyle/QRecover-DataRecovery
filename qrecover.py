@@ -10,10 +10,23 @@ import logging
 from flask import Flask, render_template_string, request, jsonify
 
 def run_tool(exe_path, work_dir=None):
-    """启动工具（EXE 已管理员运行，直接 Popen 即可）。"""
+    """启动工具，自动处理 UAC 提权。"""
     if not os.path.isfile(exe_path):
         raise FileNotFoundError(f"找不到: {exe_path}")
-    subprocess.Popen([exe_path], cwd=work_dir or os.path.dirname(exe_path))
+    try:
+        # 先尝试直接 Popen（EXE 已是管理员时直接继承）
+        subprocess.Popen([exe_path], cwd=work_dir or os.path.dirname(exe_path))
+    except OSError as e:
+        if getattr(e, 'winerror', None) == 740 or '740' in str(e):
+            # WinError 740 = 需要提权，用 ShellExecuteW 触发 UAC
+            ret = ctypes.windll.shell32.ShellExecuteW(
+                None, "runas", exe_path, None,
+                work_dir or os.path.dirname(exe_path), 1
+            )
+            if ret <= 32:
+                raise RuntimeError(f"UAC 提权失败 (ShellExecuteW 返回 {ret})")
+        else:
+            raise
     return True
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -706,7 +719,7 @@ HTML = r"""<!DOCTYPE html>
 
         <!-- 底部 -->
         <div class="footer">
-            QRecover v1.1.3 · Powered by Flask · 💻 Made with ❤️
+            QRecover v1.1.4 · Powered by Flask · 💻 Made with ❤️
         </div>
     </div>
 
@@ -1026,7 +1039,7 @@ def api_scan():
         if not recuva:
             return jsonify({"status": "error", "message": "Recuva 未找到，请先安装 Recuva。"})
         try:
-            subprocess.Popen([recuva])
+            run_tool(recuva)
             return jsonify({"status": "ok", "message": f"✅ Recuva 已启动，请在 Recuva 窗口中选择 {drive}: 盘进行扫描。"})
         except Exception as e:
             return jsonify({"status": "error", "message": f"Failed to start Recuva: {e}"})
@@ -1059,7 +1072,7 @@ def api_recover():
         if not recuva:
             return jsonify({"status": "error", "message": "Recuva 未找到，请先安装 Recuva。"})
         try:
-            subprocess.Popen([recuva])
+            run_tool(recuva)
             return jsonify({"status": "ok", "message": f"✅ Recuva 已启动！请在 Recuva 中选择恢复路径: {out_dir}"})
         except Exception as e:
             return jsonify({"status": "error", "message": f"Failed to start Recuva: {e}"})
@@ -1068,7 +1081,7 @@ def api_recover():
 
 # ─────────── Main ───────────
 def main():
-    print("Starting QRecover Web UI v1.1.3...")
+    print("Starting QRecover Web UI v1.1.4...")
     print("Open browser at: http://127.0.0.1:5000")
     app.run(host='0.0.0.0', port=5000, debug=False)
 
