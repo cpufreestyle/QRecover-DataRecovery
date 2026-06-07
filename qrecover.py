@@ -513,17 +513,20 @@ HTML = r"""
             box-shadow: inset 0 1px 3px rgba(0,0,0,0.2);
         }
         /* 滑动指示器 */
+        .tool-switch {
+            --slide-bg: var(--gradient-1);
+        }
         .tool-switch::before {
             content: '';
             position: absolute;
             top: 6px; left: 6px;
             width: calc(50% - 6px);
             height: calc(100% - 12px);
-            background: var(--gradient-1);
+            background: var(--slide-bg);
             border-radius: 10px;
             transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             z-index: 0;
-            box-shadow: 0 2px 12px rgba(108,99,255,0.4);
+            box-shadow: 0 2px 12px var(--accent-glow);
         }
         .tool-switch[data-tool="recuva"]::before {
             transform: translateX(100%);
@@ -586,6 +589,70 @@ HTML = r"""
         .section {
             margin-bottom: 22px;
         }
+        /* 主题切换器 */
+        .theme-switcher {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            z-index: 10;
+        }
+        .theme-label {
+            font-size: 0.78rem;
+            color: var(--text-dim);
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 4px 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .theme-label:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        .theme-picker {
+            display: none;
+            position: absolute;
+            top: calc(100% + 6px);
+            right: 0;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 6px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+            gap: 4px;
+            flex-direction: row;
+            z-index: 100;
+        }
+        .theme-picker.show { display: flex; }
+        .theme-btn {
+            width: 32px;
+            height: 32px;
+            border: 2px solid transparent;
+            border-radius: 8px;
+            background: var(--bg);
+            cursor: pointer;
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            opacity: 0.6;
+        }
+        .theme-btn:hover {
+            opacity: 1;
+            transform: scale(1.15);
+        }
+        .theme-btn.active {
+            border-color: var(--accent);
+            opacity: 1;
+            box-shadow: 0 0 8px var(--accent-glow);
+        }
+
         .section-title {
             font-size: 0.88rem;
             font-weight: 700;
@@ -795,6 +862,16 @@ HTML = r"""
             <div class="logo-icon">💾</div>
             <h1>QRecover</h1>
             <p class="subtitle">专业数据恢复工具集</p>
+            <!-- 主题切换器 -->
+            <div class="theme-switcher">
+                <span class="theme-label" id="currentTheme">🌸 紫罗兰</span>
+                <div class="theme-picker" id="themePicker">
+                    <button class="theme-btn active" data-theme="violet" onclick="applyTheme('violet')" title="紫罗兰">🌸</button>
+                    <button class="theme-btn" data-theme="aurora" onclick="applyTheme('aurora')" title="极光绿">🌿</button>
+                    <button class="theme-btn" data-theme="sunset" onclick="applyTheme('sunset')" title="落日橙">🌅</button>
+                    <button class="theme-btn" data-theme="cyber" onclick="applyTheme('cyber')" title="赛博朋克">🤖</button>
+                </div>
+            </div>
         </div>
 
         <!-- ══ 61儿童节特别版 ══ -->
@@ -858,6 +935,95 @@ HTML = r"""
 
     <script>
         let selectedDrive = null;
+        
+        // ── 主题切换 ──
+        const THEMES = {
+            violet: {
+                name: '紫罗兰',
+                icon: '🌸',
+                accent: '#6c63ff',
+                'accent-rgb': '108,99,255',
+                gradient1: 'linear-gradient(135deg, #6c63ff, #764ba2)',
+                gradient2: 'linear-gradient(135deg, #00d687, #00d4ff)',
+                gradient3: 'linear-gradient(135deg, #ff6b6b, #ffa07a)',
+            },
+            aurora: {
+                name: '极光绿',
+                icon: '🌿',
+                accent: '#00d687',
+                'accent-rgb': '0,214,135',
+                gradient1: 'linear-gradient(135deg, #00d687, #00d4ff)',
+                gradient2: 'linear-gradient(135deg, #6c63ff, #00d4ff)',
+                gradient3: 'linear-gradient(135deg, #43e97b, #38f9d7)',
+            },
+            sunset: {
+                name: '落日橙',
+                icon: '🌅',
+                accent: '#ff7e5f',
+                'accent-rgb': '255,126,95',
+                gradient1: 'linear-gradient(135deg, #ff7e5f, #feb47b)',
+                gradient2: 'linear-gradient(135deg, #ff9a9e, #fecfef)',
+                gradient3: 'linear-gradient(135deg, #ff7e5f, #feb47b)',
+            },
+            cyber: {
+                name: '赛博朋克',
+                icon: '🤖',
+                accent: '#00f5ff',
+                'accent-rgb': '0,245,255',
+                gradient1: 'linear-gradient(135deg, #00f5ff, #7400b8)',
+                gradient2: 'linear-gradient(135deg, #ff0a54, #00f5ff)',
+                gradient3: 'linear-gradient(135deg, #7400b8, #ff0a54)',
+            }
+        };
+
+        function getTheme() {
+            return localStorage.getItem('qrecover-theme') || 'violet';
+        }
+
+        function applyTheme(name) {
+            const theme = THEMES[name];
+            if (!theme) return;
+            const root = document.documentElement;
+            root.style.setProperty('--accent', theme.accent);
+            root.style.setProperty('--accent-glow', `rgba(${theme['accent-rgb']},0.25)`);
+            root.style.setProperty('--gradient-1', theme.gradient1);
+            root.style.setProperty('--gradient-2', theme.gradient2);
+            root.style.setProperty('--gradient-3', theme.gradient3);
+            localStorage.setItem('qrecover-theme', name);
+            // 同时更新工具切换滑块颜色
+            const ts = document.querySelector('.tool-switch');
+            if (ts) ts.style.setProperty('--slide-bg', theme.gradient1);
+            updateThemeUI(name);
+            // 工具切换滑块颜色也要更新
+            const ts = document.querySelector('.tool-switch');
+            if (ts) {
+                const bar = ts.querySelector('::before');
+                // 直接更新背景
+                ts.style.setProperty('--slide-bg', theme.gradient1);
+            }
+        }
+
+        function updateThemeUI(name) {
+            const theme = THEMES[name];
+            if (!theme) return;
+            // 更新切换器按钮文字
+            const btns = document.querySelectorAll('.theme-btn');
+            btns.forEach(b => {
+                const n = b.dataset.theme;
+                b.classList.toggle('active', n === name);
+            });
+            // 更新当前主题显示
+            const display = document.getElementById('currentTheme');
+            if (display) display.textContent = theme.icon + ' ' + theme.name;
+        }
+
+        function initTheme() {
+            const saved = getTheme();
+            applyTheme(saved);
+        }
+
+        // ── 工具切换 ──
+
         let currentTool = 'testdisk';
         let isProcessing = false;
         let statusTimer = null;
@@ -1084,7 +1250,8 @@ HTML = r"""
 
         // 初始化
         async function init() {
-            await checkTools();
+            await initTheme();
+        checkTools();
             await loadDrives();
             // 初始检查一次进程状态
             const res = await fetch('/api/status');
@@ -1176,7 +1343,20 @@ HTML = r"""
             }
             animate();
         })();
-    </script>
+    
+        // 点击外部关闭主题选择器
+        document.addEventListener('click', function(e) {
+            const picker = document.getElementById('themePicker');
+            const label = document.getElementById('currentTheme');
+            if (picker && label && !picker.contains(e.target) && !label.contains(e.target)) {
+                picker.classList.remove('show');
+            }
+        });
+        document.getElementById('currentTheme').addEventListener('click', function(e) {
+            e.stopPropagation();
+            document.getElementById('themePicker').classList.toggle('show');
+        });
+</script>
 </body>
 </html>
 """
