@@ -627,15 +627,11 @@ HTML = r"""
         }
         /* 主题切换器 */
         .theme-switcher {
-            position: absolute;
-            top: 12px;
-            right: 12px;
+            position: relative; /* 修复：relative 让 picker 下拉正确定位 */
             display: flex;
             align-items: center;
             gap: 6px;
             z-index: 10;
-            /* 关键修复：需要 relative 才能让 picker 下拉正确定位 */
-            position: relative;
             margin-top: 8px;
         }
         .theme-label {
