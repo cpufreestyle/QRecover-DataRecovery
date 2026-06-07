@@ -5,17 +5,61 @@ import sys
 import shutil
 import subprocess
 import ctypes
+import ctypes.wintypes
 import webbrowser
 import logging
+import threading
+import time
 from flask import Flask, render_template_string, request, jsonify
 
+# ── 全局进程锁：同一时间只能有一个工具进程 ──
+_ACTIVE_PROCESS = None  # 可以是 subprocess.Popen 对象，或 None
+_ACTIVE_PROCESS_LOCK = threading.Lock()
+
+def _check_and_clear_process():
+    """检查全局进程是否还在运行，如果已结束则清除（线程安全）"""
+    global _ACTIVE_PROCESS
+    with _ACTIVE_PROCESS_LOCK:
+        if _ACTIVE_PROCESS is not None:
+            # 如果是 Popen 对象
+            if hasattr(_ACTIVE_PROCESS, 'poll'):
+                if _ACTIVE_PROCESS.poll() is not None:
+                    _ACTIVE_PROCESS = None
+            # 如果是 pid (int)
+            elif isinstance(_ACTIVE_PROCESS, int):
+                try:
+                    proc = subprocess.Popen(['tasklist', '/fi', f'PID eq {_ACTIVE_PROCESS}', '/nh'],
+                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    out, _ = proc.communicate()
+                    if isinstance(out, bytes):
+                        out = out.decode('gbk', errors='replace')
+                    if str(_ACTIVE_PROCESS) not in out:
+                        _ACTIVE_PROCESS = None
+                except Exception:
+                    _ACTIVE_PROCESS = None
+
 def run_tool(exe_path, work_dir=None):
-    """启动工具，自动处理 UAC 提权。"""
+    """启动工具，自动处理 UAC 提权。同一时间只能有一个进程。"""
+    global _ACTIVE_PROCESS
+    
     if not os.path.isfile(exe_path):
         raise FileNotFoundError(f"找不到: {exe_path}")
+    
+    # 检查是否已有进程在运行
+    _check_and_clear_process()
+    with _ACTIVE_PROCESS_LOCK:
+        if _ACTIVE_PROCESS is not None:
+            raise RuntimeError("已有工具进程在运行中，请先关闭当前工具窗口。")
+    
     try:
         # 先尝试直接 Popen（EXE 已是管理员时直接继承）
-        subprocess.Popen([exe_path], cwd=work_dir or os.path.dirname(exe_path))
+        proc = subprocess.Popen(
+            [exe_path],
+            cwd=work_dir or os.path.dirname(exe_path),
+            creationflags=subprocess.CREATE_NEW_CONSOLE
+        )
+        with _ACTIVE_PROCESS_LOCK:
+            _ACTIVE_PROCESS = proc
     except OSError as e:
         if getattr(e, 'winerror', None) == 740 or '740' in str(e):
             # WinError 740 = 需要提权，用 ShellExecuteW 触发 UAC
@@ -25,9 +69,42 @@ def run_tool(exe_path, work_dir=None):
             )
             if ret <= 32:
                 raise RuntimeError(f"UAC 提权失败 (ShellExecuteW 返回 {ret})")
+            # ShellExecuteW 成功，但无法获取进程句柄
+            # 用后台线程定期检测进程是否存在（按 exe 文件名）
+            with _ACTIVE_PROCESS_LOCK:
+                _ACTIVE_PROCESS = True  # 哨兵值，表示有进程但无法追踪
+            _start_process_watcher(os.path.basename(exe_path))
         else:
             raise
     return True
+
+def _start_process_watcher(exe_name):
+    """后台线程：定期检测指定 exe 是否还在运行，退出时清除锁"""
+    def watcher():
+        global _ACTIVE_PROCESS
+        while True:
+            time.sleep(3)
+            # 检查进程是否还在运行
+            try:
+                proc = subprocess.Popen(
+                    ['tasklist', '/fi', f'IMAGENAME eq {exe_name}', '/nh', '/fo', 'csv'],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
+                out, _ = proc.communicate(timeout=5)
+                if isinstance(out, bytes):
+                    out = out.decode('gbk', errors='replace')
+                # 如果 tasklist 输出不包含 exe 名，说明进程已退出
+                if exe_name.lower() not in out.lower():
+                    with _ACTIVE_PROCESS_LOCK:
+                        _ACTIVE_PROCESS = None
+                    break
+            except Exception:
+                with _ACTIVE_PROCESS_LOCK:
+                    _ACTIVE_PROCESS = None
+                break
+    t = threading.Thread(target=watcher, daemon=True)
+    t.start()
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -57,12 +134,12 @@ TESTDISK_EXE = os.path.join(TESTDISK_DIR, "testdisk_win.exe")
 PHOTOREC_EXE = os.path.join(TESTDISK_DIR, "photorec_win.exe")
 
 # Recuva 路径
-RECUVA_PATHS = [
+RECUVAPATHS = [
     r"C:\Program Files\Recuva\recuva.exe",
     r"C:\Program Files (x86)\Recuva\recuva.exe",
     os.path.join(BASE_DIR, "recuva_portable", "recuva.exe"),
 ]
-RECUVA_INSTALLER = os.path.join(BASE_DIR, "Recuva_1.54.120_Machine_X64_nullsoft_en-US.exe")
+RECUVAIINSTALLER = os.path.join(BASE_DIR, "Recuva_1.54.120_Machine_X64_nullsoft_en-US.exe")
 
 IS_WIN = sys.platform == "win32"
 
@@ -96,107 +173,166 @@ def get_drives():
 
 def find_recuva():
     """查找 Recuva 可执行文件"""
-    for path in RECUVA_PATHS:
+    for path in RECUVAPATHS:
         if os.path.isfile(path):
             return path
     return None
 
-# ─────────── HTML 模板 ───────────
-HTML = r"""<!DOCTYPE html>
+# ─────────── API ───────────
+@app.route('/api/tools')
+def api_tools():
+    """返回可用工具列表"""
+    tools = {
+        "testdisk": os.path.isfile(TESTDISK_EXE),
+        "recuva": find_recuva() is not None
+    }
+    return jsonify(tools)
+
+RECUVADOWNLOADURL = 'https://www.ccleaner.com/recuva/download'
+
+@app.route('/api/status')
+def api_status():
+    """返回当前是否有工具进程在运行"""
+    global _ACTIVE_PROCESS
+    _check_and_clear_process()
+    with _ACTIVE_PROCESS_LOCK:
+        if _ACTIVE_PROCESS is not None:
+            return jsonify({"status": "busy", "message": "有工具进程正在运行中，请先关闭当前工具窗口。"})
+        else:
+            return jsonify({"status": "idle", "message": "无工具进程运行。"})
+
+@app.route('/api/install_recuva')
+def api_install_recuva():
+    """启动 Recuva 安装程序或打开下载页面"""
+    if os.path.isfile(RECUVAIINSTALLER):
+        try:
+            subprocess.Popen([RECUVAIINSTALLER], shell=True)
+            return jsonify({"status": "ok", "message": "Recuva 安装程序已启动，请在弹出的窗口中完成安装。"})
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"启动安装程序失败: {e}"})
+    else:
+        return jsonify({"status": "ok", "action": "open_url", "url": RECUVADOWNLOADURL, "message": "请先下载安装 Recuva。"})
+
+@app.route('/api/drives')
+def api_drives():
+    return jsonify(get_drives())
+
+@app.route('/api/scan')
+def api_scan():
+    """启动扫描工具"""
+    drive = request.args.get('drive', '')
+    tool = request.args.get('tool', 'testdisk')
+    
+    if not drive or len(drive) != 1 or not drive.isalpha():
+        log.warning(f'Invalid drive param: {drive!r}')
+        return jsonify({"status": "error", "message": "无效的盘符参数"}), 400
+    
+    if tool == 'testdisk':
+        if not os.path.isfile(TESTDISK_EXE):
+            return jsonify({"status": "error", "message": f"TestDisk not found at {TESTDISK_EXE}"})
+        try:
+            run_tool(TESTDISK_EXE, TESTDISK_DIR)
+            return jsonify({"status": "ok", "message": f"✅ TestDisk 已在新窗口启动（UAC 提示已弹出），请在 TestDisk 窗口中选择 {drive}: 盘进行扫描操作。"})
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"Failed to start TestDisk: {e}"})
+    
+    elif tool == 'recuva':
+        recuva = find_recuva()
+        if not recuva:
+            return jsonify({"status": "error", "message": "Recuva 未找到，请先安装 Recuva。"})
+        try:
+            run_tool(recuva)
+            return jsonify({"status": "ok", "message": f"✅ Recuva 已启动，请在 Recuva 窗口中选择 {drive}: 盘进行扫描。"})
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"Failed to start Recuva: {e}"})
+    
+    return jsonify({"status": "error", "message": "Invalid tool specified"})
+
+@app.route('/api/recover')
+def api_recover():
+    """启动恢复工具"""
+    drive = request.args.get('drive', '')
+    tool = request.args.get('tool', 'testdisk')
+    out_dir = request.args.get('out', os.path.expanduser("~\\Recovered"))
+    os.makedirs(out_dir, exist_ok=True)
+
+    if not drive or len(drive) != 1 or not drive.isalpha():
+        log.warning('Invalid drive param in recover: %r', drive)
+        return jsonify({"status": "error", "message": "无效的盘符参数"}), 400
+
+    if tool == 'testdisk':
+        if not os.path.isfile(PHOTOREC_EXE):
+            return jsonify({"status": "error", "message": f"PhotoRec not found at {PHOTOREC_EXE}"})
+        try:
+            run_tool(PHOTOREC_EXE, TESTDISK_DIR)
+            return jsonify({"status": "ok", "message": f"✅ PhotoRec 已在新窗口启动（UAC 提示已弹出）！恢复的文件将保存到: {out_dir}"})
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"Failed to start PhotoRec: {e}"})
+    
+    elif tool == 'recuva':
+        recuva = find_recuva()
+        if not recuva:
+            return jsonify({"status": "error", "message": "Recuva 未找到，请先安装 Recuva。"})
+        try:
+            run_tool(recuva)
+            return jsonify({"status": "ok", "message": f"✅ Recuva 已启动！请在 Recuva 中选择恢复路径: {out_dir}"})
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"Failed to start Recuva: {e}"})
+    
+    return jsonify({"status": "error", "message": "Invalid tool specified"})
+
+# ─────────── HTML Template ───────────
+HTML = r"""
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QRecover - 数据恢复工具</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💾</text></svg>">
+    <title>QRecover v1.1.4</title>
     <style>
         :root {
-            --bg: #0f0f1a;
-            --surface: #1a1a2e;
-            --card: #16213e;
-            --border: #2a2a4a;
+            --bg: #0a0a0f;
+            --card: #12121a;
+            --card-hover: #1a1a26;
+            --border: #1e1e2e;
             --text: #e8e8f0;
-            --text-dim: #8888aa;
+            --text-dim: #8888a0;
             --accent: #6c63ff;
-            --accent-glow: rgba(108,99,255,0.3);
-            --success: #00d68f;
-            --success-bg: rgba(0,214,143,0.12);
+            --accent-glow: rgba(108,99,255,0.25);
+            --success: #00d687;
+            --success-bg: rgba(0,214,135,0.08);
             --warning: #ffaa00;
-            --warning-bg: rgba(255,170,0,0.12);
+            --warning-bg: rgba(255,170,0,0.08);
             --danger: #ff4757;
-            --danger-bg: rgba(255,71,87,0.12);
+            --danger-bg: rgba(255,71,87,0.08);
             --info: #54a0ff;
-            --info-bg: rgba(84,160,255,0.12);
-            --pink: #ff6b9d;
-            --cyan: #00d4ff;
-            --gradient-1: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            --gradient-2: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-            --gradient-3: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-            --shadow-sm: 0 2px 8px rgba(0,0,0,0.2);
-            --shadow-md: 0 4px 20px rgba(0,0,0,0.3);
-            --shadow-lg: 0 8px 40px rgba(0,0,0,0.4);
-            --radius: 16px;
+            --info-bg: rgba(84,160,255,0.08);
+            --gradient-1: linear-gradient(135deg, #6c63ff, #764ba2);
+            --gradient-2: linear-gradient(135deg, #00d687, #00d4ff);
+            --gradient-3: linear-gradient(135deg, #ff6b6b, #ffa07a);
             --radius-sm: 10px;
-            --radius-xs: 6px;
+            --radius-xs: 8px;
+            --shadow-sm: 0 2px 8px rgba(0,0,0,0.3);
         }
-
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
             background: var(--bg);
             color: var(--text);
             min-height: 100vh;
-            overflow-x: hidden;
+            line-height: 1.6;
         }
-
-        /* 背景装饰 */
-        body::before {
-            content: '';
-            position: fixed;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background: 
-                radial-gradient(circle at 20% 20%, rgba(108,99,255,0.06) 0%, transparent 50%),
-                radial-gradient(circle at 80% 80%, rgba(0,212,255,0.05) 0%, transparent 50%),
-                radial-gradient(circle at 50% 50%, rgba(255,107,157,0.04) 0%, transparent 60%);
-            z-index: -1;
-            animation: bgFloat 20s ease-in-out infinite alternate;
-        }
-        @keyframes bgFloat {
-            0% { transform: translate(0, 0) rotate(0deg); }
-            100% { transform: translate(-2%, -2%) rotate(1deg); }
-        }
-
-        /* 主容器 */
-        .container {
-            max-width: 720px;
-            margin: 0 auto;
-            padding: 30px 20px 60px;
-        }
-
+        .container { max-width: 640px; margin: 0 auto; padding: 20px 16px 60px; }
+        
         /* 头部 */
         .header {
             text-align: center;
-            padding: 40px 20px 35px;
+            padding: 32px 16px 24px;
             position: relative;
         }
-
-        .logo-icon {
-            font-size: 3.5rem;
-            display: inline-block;
-            animation: logoFloat 3s ease-in-out infinite;
-            filter: drop-shadow(0 4px 16px var(--accent-glow));
-        }
-        @keyframes logoFloat {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-8px); }
-        }
-
+        .logo-icon { font-size: 3.5rem; margin-bottom: 8px; display: block; }
         h1 {
-            font-size: 2.2rem;
+            font-size: 2rem;
             font-weight: 800;
             margin-top: 14px;
             background: var(--gradient-1);
@@ -205,7 +341,6 @@ HTML = r"""<!DOCTYPE html>
             background-clip: text;
             letter-spacing: -0.5px;
         }
-
         .subtitle {
             color: var(--text-dim);
             font-size: 0.95rem;
@@ -213,8 +348,7 @@ HTML = r"""<!DOCTYPE html>
             font-weight: 400;
         }
 
-        /* ═══ 61 儿童节特别版 ═══ */
-        /* 飘浮粒子画布 */
+        /* ══ 61 儿童节特别版 ══ */
         #confetti-canvas {
             position: fixed;
             top: 0; left: 0;
@@ -222,7 +356,6 @@ HTML = r"""<!DOCTYPE html>
             pointer-events: none;
             z-index: 9999;
         }
-        /* 节日主横幅 */
         .children-day-banner {
             background: linear-gradient(135deg, #ff6b6b 0%, #ffa07a 20%, #ffd700 40%, #98fb98 60%, #87ceeb 80%, #dda0dd 100%);
             background-size: 400% 400%;
@@ -291,7 +424,6 @@ HTML = r"""<!DOCTYPE html>
             33% { transform: translateY(-8px) rotate(5deg) scale(1.1); }
             66% { transform: translateY(-4px) rotate(-2deg) scale(0.95); }
         }
-        /* 节日星星 */
         .star-row {
             display: flex;
             justify-content: center;
@@ -335,7 +467,6 @@ HTML = r"""<!DOCTYPE html>
         .tool-btn { border-color: var(--border); }
         .tool-btn.active { border-color: #ffd700; }
         .tool-btn.active::after { background: #ffd700; }
-        /* 节日装饰：按钮彩条 */
         .btn-scan {
             background: linear-gradient(135deg, #ff6b6b, #ffa07a, #ffd700) !important;
             box-shadow: 0 4px 20px rgba(255,107,107,0.35) !important;
@@ -350,9 +481,7 @@ HTML = r"""<!DOCTYPE html>
         .btn-recover:hover:not(:disabled) {
             box-shadow: 0 6px 28px rgba(67,233,123,0.5) !important;
         }
-        /* 节日装饰：logo 特效 */
         .logo-icon { filter: drop-shadow(0 0 24px rgba(255,215,0,0.4)); }
-        /* 节日装饰：标题 */
         h1 {
             background: linear-gradient(135deg, #ffd700, #ff6b6b, #dda0dd, #87ceeb, #98fb98) !important;
             background-size: 200% 200% !important;
@@ -366,88 +495,92 @@ HTML = r"""<!DOCTYPE html>
             50% { background-position: 100% 50%; }
             100% { background-position: 0% 50%; }
         }
-        /* 节日装饰：驱动器卡片选中态 */
+        .drive-card:hover { border-color: #ff6b9d; }
         .drive-card.selected {
             border-color: #ffd700;
             box-shadow: 0 4px 20px rgba(255,215,0,0.2);
         }
-        .drive-card:hover { border-color: #ff6b9d; }
 
-        /* 工具切换卡片 */
+        /* 工具切换卡片（滑动式切换器） */
         .tool-switch {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 14px;
-            margin-bottom: 26px;
-        }
-        .tool-btn {
+            position: relative;
             background: var(--card);
             border: 2px solid var(--border);
-            border-radius: var(--radius-sm);
-            padding: 18px 16px;
+            border-radius: 14px;
+            padding: 6px;
+            display: flex;
+            margin-bottom: 26px;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.2);
+        }
+        /* 滑动指示器 */
+        .tool-switch::before {
+            content: '';
+            position: absolute;
+            top: 6px; left: 6px;
+            width: calc(50% - 6px);
+            height: calc(100% - 12px);
+            background: var(--gradient-1);
+            border-radius: 10px;
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 0;
+            box-shadow: 0 2px 12px rgba(108,99,255,0.4);
+        }
+        .tool-switch[data-tool="recuva"]::before {
+            transform: translateX(100%);
+        }
+        .tool-btn {
+            flex: 1;
+            background: transparent;
+            border: none;
+            border-radius: 10px;
+            padding: 16px 12px;
             cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.3s;
             text-align: center;
             position: relative;
-            overflow: hidden;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
         }
-        .tool-btn::before {
-            content: '';
-            position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
-            opacity: 0;
-            transition: opacity 0.3s;
+        .tool-btn:hover:not(.disabled) {
+            background: rgba(255,255,255,0.05);
         }
-        .tool-btn:hover {
-            border-color: var(--accent);
-            box-shadow: 0 4px 20px var(--accent-glow), var(--shadow-sm);
-            transform: translateY(-2px);
-        }
-        .tool-btn.active {
-            border-color: var(--accent);
-            background: linear-gradient(135deg, rgba(108,99,255,0.15), rgba(118,75,162,0.1));
-            box-shadow: 0 4px 24px var(--accent-glow), inset 0 1px 0 rgba(255,255,255,0.05);
-        }
-        .tool-btn.active::after {
-            content: '';
-            position: absolute;
-            bottom: 0; left: 50%;
-            transform: translateX(-50%);
-            width: 40px; height: 3px;
-            background: var(--accent);
-            border-radius: 3px 3px 0 0;
+        .tool-btn.disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
         }
         .tool-icon {
-            font-size: 2rem;
+            font-size: 1.8rem;
             display: block;
-            margin-bottom: 8px;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+            transition: transform 0.3s;
+        }
+        .tool-btn.active .tool-icon {
+            transform: scale(1.15);
         }
         .tool-name {
             font-weight: 700;
-            font-size: 1rem;
+            font-size: 0.9rem;
             color: var(--text);
-            margin-bottom: 4px;
         }
         .tool-desc {
-            font-size: 0.78rem;
+            font-size: 0.72rem;
             color: var(--text-dim);
+            line-height: 1.3;
         }
         .tool-badge {
             display: inline-block;
             padding: 2px 8px;
             border-radius: 10px;
-            font-size: 0.65rem;
+            font-size: 0.62rem;
             font-weight: 600;
-            margin-top: 8px;
             letter-spacing: 0.5px;
         }
         .badge-cli { background: var(--info-bg); color: var(--info); }
         .badge-gui { background: var(--success-bg); color: var(--success); }
-        .tool-btn.disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-            pointer-events: none;
-        }
+        .badge-unavailable { background: var(--danger-bg); color: var(--danger); }
 
         /* 区块标题 */
         .section {
@@ -664,7 +797,7 @@ HTML = r"""<!DOCTYPE html>
             <p class="subtitle">专业数据恢复工具集</p>
         </div>
 
-        <!-- ═══ 61儿童节特别版 ═══ -->
+        <!-- ══ 61儿童节特别版 ══ -->
         <canvas id="confetti-canvas"></canvas>
         <div class="star-row">
             <span>⭐</span><span>🌟</span><span>✨</span><span>💫</span><span>⭐</span>
@@ -675,19 +808,19 @@ HTML = r"""<!DOCTYPE html>
             <div class="banner-sub">愿每个大人的心里，都住着一个快乐的小孩 🍬</div>
         </div>
 
-        <!-- 工具切换 -->
-        <div class="tool-switch">
+        <!-- 工具切换（滑动式） -->
+        <div class="tool-switch" id="toolSwitch" data-tool="testdisk">
             <div class="tool-btn active" id="btnTestDisk" onclick="switchTool('testdisk')">
-                <span class="tool-icon">🛠️</span>
+                <span class="tool-icon">🔧</span>
                 <div class="tool-name">TestDisk</div>
                 <div class="tool-desc">分区表修复 & 文件恢复</div>
-                <span class="tool-badge badge-cli">CLI / TUI</span>
+                <span class="tool-badge badge-cli" id="badgeTestDisk">CLI / TUI</span>
             </div>
             <div class="tool-btn" id="btnRecuva" onclick="switchTool('recuva')">
                 <span class="tool-icon">🎨</span>
                 <div class="tool-name">Recuva</div>
                 <div class="tool-desc">图形化文件恢复向导</div>
-                <span class="tool-badge badge-gui">GUI</span>
+                <span class="tool-badge badge-gui" id="badgeRecuva">GUI</span>
             </div>
         </div>
 
@@ -727,12 +860,25 @@ HTML = r"""<!DOCTYPE html>
         let selectedDrive = null;
         let currentTool = 'testdisk';
         let isProcessing = false;
+        let statusTimer = null;
 
         // 切换工具
         function switchTool(tool) {
             if (isProcessing) return;
+            
+            // 检查工具是否可用
+            const btn = document.getElementById(tool === 'testdisk' ? 'btnTestDisk' : 'btnRecuva');
+            if (btn.classList.contains('disabled')) {
+                showStatus('warning', '该工具未安装，请先安装后再切换。');
+                return;
+            }
+            
             currentTool = tool;
             
+            // 更新滑动指示器
+            document.getElementById('toolSwitch').dataset.tool = tool;
+            
+            // 更新按钮激活状态
             document.getElementById('btnTestDisk').classList.toggle('active', tool === 'testdisk');
             document.getElementById('btnRecuva').classList.toggle('active', tool === 'recuva');
             
@@ -824,8 +970,9 @@ HTML = r"""<!DOCTYPE html>
             } catch (e) {
                 showStatus('error', '网络请求失败：' + e.message);
             } finally {
-                isProcessing = false;
-                updateButtons();
+                // 不立即重置 isProcessing，等轮询检测到进程结束后重置
+                // 启动状态轮询
+                startStatusPolling();
             }
         }
 
@@ -847,9 +994,33 @@ HTML = r"""<!DOCTYPE html>
             } catch (e) {
                 showStatus('error', '网络请求失败：' + e.message);
             } finally {
-                isProcessing = false;
-                updateButtons();
+                // 不立即重置 isProcessing，等轮询检测到进程结束后重置
+                // 启动状态轮询
+                startStatusPolling();
             }
+        }
+
+        // 状态轮询
+        function startStatusPolling() {
+            if (statusTimer) return; // 已经在轮询
+            
+            statusTimer = setInterval(async () => {
+                try {
+                    const res = await fetch('/api/status');
+                    const data = await res.json();
+                    
+                    if (data.status === 'idle') {
+                        // 进程已结束
+                        isProcessing = false;
+                        updateButtons();
+                        clearInterval(statusTimer);
+                        statusTimer = null;
+                    }
+                    // 如果还是 busy，继续轮询
+                } catch (e) {
+                    console.warn('状态轮询失败:', e);
+                }
+            }, 2000); // 每 2 秒轮询一次
         }
 
         // 安装 Recuva
@@ -877,21 +1048,34 @@ HTML = r"""<!DOCTYPE html>
                 const tools = await res.json();
                 
                 const recuvaBtn = document.getElementById('btnRecuva');
+                const recuvaBadge = document.getElementById('badgeRecuva');
                 const hint = document.getElementById('recuvaHint');
                 
                 if (!tools.recuva) {
                     recuvaBtn.classList.add('disabled');
+                    recuvaBadge.className = 'tool-badge badge-unavailable';
+                    recuvaBadge.textContent = '未安装';
                     hint.classList.add('show');
                     if (currentTool === 'recuva') {
                         switchTool('testdisk');
                     }
                 } else {
                     recuvaBtn.classList.remove('disabled');
+                    recuvaBadge.className = 'tool-badge badge-gui';
+                    recuvaBadge.textContent = 'GUI';
                     hint.classList.remove('show');
                 }
                 
+                const testdiskBtn = document.getElementById('btnTestDisk');
+                const testdiskBadge = document.getElementById('badgeTestDisk');
                 if (!tools.testdisk) {
-                    document.getElementById('btnTestDisk').classList.add('disabled');
+                    testdiskBtn.classList.add('disabled');
+                    testdiskBadge.className = 'tool-badge badge-unavailable';
+                    testdiskBadge.textContent = '未安装';
+                } else {
+                    testdiskBtn.classList.remove('disabled');
+                    testdiskBadge.className = 'tool-badge badge-cli';
+                    testdiskBadge.textContent = 'CLI / TUI';
                 }
             } catch (e) {
                 console.warn('工具检测失败:', e);
@@ -902,12 +1086,20 @@ HTML = r"""<!DOCTYPE html>
         async function init() {
             await checkTools();
             await loadDrives();
+            // 初始检查一次进程状态
+            const res = await fetch('/api/status');
+            const data = await res.json();
+            if (data.status === 'busy') {
+                isProcessing = true;
+                updateButtons();
+                startStatusPolling();
+            }
         }
 
         init();
         setInterval(loadDrives, 15000);
 
-        // ═══ 61 儿童节彩屑动画 ═══
+        // ══ 61 儿童节彩屑动画 ══
         (function() {
             const canvas = document.getElementById('confetti-canvas');
             const ctx = canvas.getContext('2d');
@@ -986,98 +1178,8 @@ HTML = r"""<!DOCTYPE html>
         })();
     </script>
 </body>
-</html>"""
-
-@app.route('/api/tools')
-def api_tools():
-    """返回可用工具列表"""
-    tools = {
-        "testdisk": os.path.isfile(TESTDISK_EXE),
-        "recuva": find_recuva() is not None
-    }
-    return jsonify(tools)
-
-RECUVA_DOWNLOAD_URL = 'https://www.ccleaner.com/recuva/download'
-
-@app.route('/api/install_recuva')
-def api_install_recuva():
-    """启动 Recuva 安装程序或打开下载页面"""
-    if os.path.isfile(RECUVA_INSTALLER):
-        try:
-            subprocess.Popen([RECUVA_INSTALLER], shell=True)
-            return jsonify({"status": "ok", "message": "Recuva 安装程序已启动，请在弹出的窗口中完成安装。"})
-        except Exception as e:
-            return jsonify({"status": "error", "message": f"启动安装程序失败: {e}"})
-    else:
-        return jsonify({"status": "ok", "action": "open_url", "url": RECUVA_DOWNLOAD_URL, "message": "请先下载安装 Recuva。"})
-
-@app.route('/api/drives')
-def api_drives():
-    return jsonify(get_drives())
-
-@app.route('/api/scan')
-def api_scan():
-    """启动扫描工具"""
-    drive = request.args.get('drive', '')
-    tool = request.args.get('tool', 'testdisk')
-    
-    if not drive or len(drive) != 1 or not drive.isalpha():
-        log.warning(f'Invalid drive param: {drive!r}')
-        return jsonify({"status": "error", "message": "无效的盘符参数"}), 400
-    
-    if tool == 'testdisk':
-        if not os.path.isfile(TESTDISK_EXE):
-            return jsonify({"status": "error", "message": f"TestDisk not found at {TESTDISK_EXE}"})
-        try:
-            run_tool(TESTDISK_EXE, TESTDISK_DIR)
-            return jsonify({"status": "ok", "message": f"✅ TestDisk 已在新窗口启动（UAC 提示已弹出），请在 TestDisk 窗口中选择 {drive}: 盘进行扫描操作。"})
-        except Exception as e:
-            return jsonify({"status": "error", "message": f"Failed to start TestDisk: {e}"})
-    
-    elif tool == 'recuva':
-        recuva = find_recuva()
-        if not recuva:
-            return jsonify({"status": "error", "message": "Recuva 未找到，请先安装 Recuva。"})
-        try:
-            run_tool(recuva)
-            return jsonify({"status": "ok", "message": f"✅ Recuva 已启动，请在 Recuva 窗口中选择 {drive}: 盘进行扫描。"})
-        except Exception as e:
-            return jsonify({"status": "error", "message": f"Failed to start Recuva: {e}"})
-    
-    return jsonify({"status": "error", "message": "Invalid tool specified"})
-
-@app.route('/api/recover')
-def api_recover():
-    """启动恢复工具"""
-    drive = request.args.get('drive', '')
-    tool = request.args.get('tool', 'testdisk')
-    out_dir = request.args.get('out', os.path.expanduser("~\\Recovered"))
-    os.makedirs(out_dir, exist_ok=True)
-
-    if not drive or len(drive) != 1 or not drive.isalpha():
-        log.warning('Invalid drive param in recover: %r', drive)
-        return jsonify({"status": "error", "message": "无效的盘符参数"}), 400
-
-    if tool == 'testdisk':
-        if not os.path.isfile(PHOTOREC_EXE):
-            return jsonify({"status": "error", "message": f"PhotoRec not found at {PHOTOREC_EXE}"})
-        try:
-            run_tool(PHOTOREC_EXE, TESTDISK_DIR)
-            return jsonify({"status": "ok", "message": f"✅ PhotoRec 已在新窗口启动（UAC 提示已弹出）！恢复的文件将保存到: {out_dir}"})
-        except Exception as e:
-            return jsonify({"status": "error", "message": f"Failed to start PhotoRec: {e}"})
-    
-    elif tool == 'recuva':
-        recuva = find_recuva()
-        if not recuva:
-            return jsonify({"status": "error", "message": "Recuva 未找到，请先安装 Recuva。"})
-        try:
-            run_tool(recuva)
-            return jsonify({"status": "ok", "message": f"✅ Recuva 已启动！请在 Recuva 中选择恢复路径: {out_dir}"})
-        except Exception as e:
-            return jsonify({"status": "error", "message": f"Failed to start Recuva: {e}"})
-    
-    return jsonify({"status": "error", "message": "Invalid tool specified"})
+</html>
+"""
 
 # ─────────── Main ───────────
 def main():
