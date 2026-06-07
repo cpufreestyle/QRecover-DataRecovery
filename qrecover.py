@@ -10,7 +10,43 @@ import webbrowser
 import logging
 import threading
 import time
+import ctypes.wintypes
 from flask import Flask, render_template_string, request, jsonify
+
+# ── 单实例检测：确保只有一个 QRecoverWeb 进程运行 ──
+def ensure_single_instance():
+    """确保只有一个实例运行，如果有旧进程则终止它"""
+    current_pid = os.getpid()
+    
+    # 查找所有 QRecoverWeb 进程
+    try:
+        result = subprocess.run(
+            ['tasklist', '/FI', 'IMAGENAME eq QRecoverWeb.exe', '/FO', 'CSV', '/NH'],
+            capture_output=True, text=True, timeout=5
+        )
+        lines = result.stdout.strip().split('\n')
+        for line in lines:
+            if 'QRecoverWeb.exe' in line:
+                # CSV 格式: "QRecoverWeb.exe","PID","Session Name",...
+                parts = line.split(',')
+                if len(parts) >= 2:
+                    pid_str = parts[1].strip('"')
+                    try:
+                        pid = int(pid_str)
+                        if pid != current_pid:
+                            logging.info(f"终止旧进程 PID={pid}")
+                            subprocess.run(['taskkill', '/F', '/PID', str(pid)], 
+                                         capture_output=True, timeout=5)
+                            time.sleep(0.5)
+                    except ValueError:
+                        pass
+    except Exception as e:
+        logging.warning(f"检测旧进程失败: {e}")
+    
+    # 使用互斥体防止竞态
+    mutex_name = "Global\\QRecoverWeb_SingleInstance"
+    mutex = ctypes.windll.kernel32.CreateMutexW(None, False, mutex_name)
+    return mutex
 
 # ── 全局进程锁：同一时间只能有一个工具进程 ──
 _ACTIVE_PROCESS = None  # 可以是 subprocess.Popen 对象，或 None
@@ -1363,9 +1399,15 @@ HTML = r"""
 
 # ─────────── Main ───────────
 def main():
-    print("Starting QRecover Web UI v1.1.4...")
+    # 单实例检测：确保只有一个进程
+    mutex = ensure_single_instance()
+    print("Starting QRecover Web UI v1.1.7...")
     print("Open browser at: http://127.0.0.1:5000")
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    try:
+        app.run(host='0.0.0.0', port=5000, debug=False)
+    finally:
+        # 程序退出时释放互斥体
+        ctypes.windll.kernel32.CloseHandle(mutex)
 
 if __name__ == "__main__":
     main()
