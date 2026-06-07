@@ -634,6 +634,9 @@ HTML = r"""
             align-items: center;
             gap: 6px;
             z-index: 10;
+            /* 关键修复：需要 relative 才能让 picker 下拉正确定位 */
+            position: relative;
+            margin-top: 8px;
         }
         .theme-label {
             font-size: 0.78rem;
@@ -664,7 +667,7 @@ HTML = r"""
             flex-direction: row;
             z-index: 100;
         }
-        .theme-picker.show { display: flex; }
+        .theme-picker.show { display: flex; z-index: 999; position: absolute; top: calc(100% + 4px); right: 0; box-shadow: 0 8px 24px rgba(0,0,0,0.18); }
         .theme-btn {
             width: 32px;
             height: 32px;
@@ -910,15 +913,11 @@ HTML = r"""
             </div>
         </div>
 
-        <!-- ══ 61儿童节特别版 ══ -->
-        <canvas id="confetti-canvas"></canvas>
-        <div class="star-row">
-            <span>⭐</span><span>🌟</span><span>✨</span><span>💫</span><span>⭐</span>
-        </div>
-        <div class="children-day-banner">
-            <div class="banner-balloons"><span>🎈</span><span>🎈</span><span>🎈</span></div>
-            <div class="banner-title">🎠 六一儿童节快乐！</div>
-            <div class="banner-sub">愿每个大人的心里，都住着一个快乐的小孩 🍬</div>
+        <!-- ══ 状态栏 ══ -->
+        <div class="status-bar">
+            <span>🛡️ QRecover Web UI</span>
+            <span class="status-sep">|</span>
+            <span id="processStatus">空闲中</span>
         </div>
 
         <!-- 工具切换（滑动式） -->
