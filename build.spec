@@ -49,6 +49,16 @@ a = Analysis(
     optimize=0,
 )
 
+version_info = {
+    'version': '2.0.0',
+    'company_name': 'QRecover',
+    'file_description': 'QRecover Desktop - Data Recovery Toolkit',
+    'internal_name': 'QRecoverDesktop',
+    'legal_copyright': 'GPL v2+',
+    'original_filename': 'QRecoverDesktop.exe',
+    'product_name': 'QRecover Desktop',
+}
+
 pyz = PYZ(a.pure, a.zipped_data)
 
 exe = EXE(
@@ -71,5 +81,5 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=str(BASE / 'qrecover_icon.ico') if (BASE / 'qrecover_icon.ico').exists() else None,
-    version_info=None,
+    version_info=version_info,
 )

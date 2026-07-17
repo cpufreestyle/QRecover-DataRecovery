@@ -11,6 +11,15 @@ import threading
 import time
 import json
 from flask import Flask, render_template_string, request, jsonify, Response
+
+# ── Windows 控制台 UTF-8（修复中文乱码）──
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
+except Exception:
+    pass
 from ai_assistant import assistant as ai_assistant
 
 # ── 单实例检测：确保只有一个 QRecoverWeb 进程运行 ──
