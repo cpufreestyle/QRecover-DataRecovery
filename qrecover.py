@@ -422,7 +422,11 @@ def get_recuva_local_version():
 
 
 def _download_file(url, dest):
-    # urllib.request 原生支持 http(s) 与 file:// 协议
+    # 本地文件路径（无 scheme，绝对或相对）：直接复制，支持 clone 后任意目录
+    if "://" not in url and os.path.isfile(url):
+        shutil.copyfile(url, dest)
+        return
+    # http(s)/file:// 交由 urllib
     import urllib.request
     req = urllib.request.Request(url, headers={
         "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -462,10 +466,18 @@ def _load_manifest():
     dl_url = os.environ.get("QRECOVER_RECUVADLURL", "").strip() or RECUVaDLURL
     if manifest_url:
         try:
-            import urllib.request
-            req = urllib.request.Request(manifest_url, headers=RECUVaHEADERS)
-            with urllib.request.urlopen(req, timeout=30) as r:
-                data = json.loads(r.read().decode("utf-8"))
+            data = None
+            # 本地文件路径（无 scheme）：按 BASE_DIR 解析后直接读取，支持 clone 后任意目录
+            if "://" not in manifest_url:
+                local = os.path.join(BASE_DIR, manifest_url) if not os.path.isabs(manifest_url) else manifest_url
+                if os.path.isfile(local):
+                    with open(local, encoding="utf-8") as _mf:
+                        data = json.load(_mf)
+            if data is None:
+                import urllib.request
+                req = urllib.request.Request(manifest_url, headers=RECUVaHEADERS)
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    data = json.loads(r.read().decode("utf-8"))
             ver = str(data.get("version", "")).strip() or None
             url = str(data.get("url", "")).strip() or None
             sha = str(data.get("sha256", "")).strip().lower() or None
@@ -491,6 +503,9 @@ def _obtain_installer(tmp):
     ver, url, sha, pkg_type = _load_manifest()
     if url:
         try:
+            # 相对路径（无 scheme）按项目根目录 BASE_DIR 解析，支持 clone 后任意目录开箱即用
+            if "://" not in url:
+                url = os.path.join(BASE_DIR, url)
             ext = ".zip" if pkg_type == "zip" else ".exe"
             installer = os.path.join(tmp, "recuva_pkg" + ext)
             _download_file(url, installer)

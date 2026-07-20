@@ -31,11 +31,10 @@ stderr.log
 Recuva_*.exe
 Recuva_*.yaml
 
-# Recuva portable (large binary dir, updated at runtime)
+# Recuva portable (generated at runtime by silent updater; NOT committed)
 recuva_portable/
-recuva_update.zip
+# baseline update package + manifest ARE committed for out-of-box use
 recuva_update_state.json
-recuva_manifest.json
 
 # PyInstaller internal / bundled binaries
 _internal/
