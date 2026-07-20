@@ -31,6 +31,47 @@ stderr.log
 Recuva_*.exe
 Recuva_*.yaml
 
+# Recuva portable (large binary dir, updated at runtime)
+recuva_portable/
+recuva_update.zip
+recuva_update_state.json
+recuva_manifest.json
+
+# PyInstaller internal / bundled binaries
+_internal/
+
+# Packaged release zips / exes
+QRecoverWeb.zip
+QRecoverWeb_latest.exe
+QRecoverWeb.exe.manifest
+testdisk.zip
+
+# Temp / test scratch files
+_logtail.txt
+_test_*.json
+_test_*.log
+_e2e*.py
+_e2e*.json
+_e2e*.log
+_*.log
+_*.txt
+verify*.txt
+test_*.py
+test_*.txt
+check_exe.py
+close_qr.py
+page_check.html
+probe*.py
+probe*.txt
+diag_*.py
+diag_*.txt
+recuva_update.log
+recuva_logic_out.txt
+obtain_out.txt
+test_recuva_logic.py
+test_update_fix.py
+test_update_fix_out.txt
+
 # IDE
 .vscode/
 .idea/

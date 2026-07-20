@@ -40,7 +40,10 @@ log = logging.getLogger(__name__)
 
 # ── 导入 Flask 应用 ──
 sys.path.insert(0, BASE_DIR)
-from qrecover import app
+from qrecover import app, start_recuva_updater
+
+# 启动 Recuva 无感自动更新（后台线程）
+start_recuva_updater()
 
 # ── 配置文件路径 ──
 CONFIG_FILE = os.path.join(BASE_DIR, 'qrecover_desktop.json')

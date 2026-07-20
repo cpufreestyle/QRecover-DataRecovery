@@ -10,6 +10,7 @@ import logging
 import threading
 import time
 import json
+import tempfile
 from flask import Flask, render_template_string, request, jsonify, Response
 
 # ── Windows 控制台 UTF-8（修复中文乱码）──
@@ -206,9 +207,44 @@ RECUVAPATHS = [
 ]
 RECUVAIINSTALLER = os.path.join(BASE_DIR, "Recuva_1.54.120_Machine_X64_nullsoft_en-US.exe")
 
+# ── Recuva 无感自动更新（启动时后台静默从官网抓取最新版）──
+RECUVAPORTABLE = os.path.join(BASE_DIR, "recuva_portable")
+RECUVAVERSIONFILE = os.path.join(RECUVAPORTABLE, "version.txt")
+# 注：CCleaner 官方下载为前端动态生成的签名地址，无固定直链，
+# 故不再硬编码官网直链，改用下方可配置的 manifest 更新源。
+# 下载请求头（伪装浏览器，避免被拦截）
+RECUVaHEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"),
+    "Accept": "*/*",
+    "Referer": "https://www.ccleaner.com/recuva/download",
+}
+# ── 无感更新清单（manifest）机制 ──
+# 从可配置的清单 URL 拉取 JSON：{ "version": "1.54.120.0",
+#   "url": "<安装包直链>", "sha256": "<可选校验和>" }
+# 与本地版本比对后静默下载安装。清单由你自己托管（如 GitHub Release），
+# 即可实现“自动无感更新到官网/托管最新版”（CCleaner 无稳定直链，故采用此方案）。
+# 若未配置清单 URL，则使用本地内置安装器作为更新源（离线可用，保持当前版本）。
+RECUVaMANIFESTURL = os.environ.get("QRECOVER_RECUVAMANIFESTURL", "").strip()
+RECUVaDLURL = os.environ.get("QRECOVER_RECUVADLURL", "").strip()
+RECUVaUPDATELOG = os.path.join(BASE_DIR, "recuva_update.log")
+RECUVaUPDATESTATE = os.path.join(BASE_DIR, "recuva_update_state.json")
+# 可通过环境变量关闭：set QRECOVER_RECUVAAUTOUPDATE=0
+RECUVaAUTOUPDATE = os.environ.get("QRECOVER_RECUVAAUTOUPDATE", "1") != "0"
+RECUVaCHECKINTERVAL = 24 * 3600  # 每日至多检查一次，避免每次启动都下载
+_updater_started = False
+
 IS_WIN = sys.platform == "win32"
 
 app = Flask(__name__)
+
+# ── 禁止浏览器缓存页面与接口，避免“网页端看不到新功能(AI)”的缓存问题 ──
+@app.after_request
+def _no_cache(resp):
+    resp.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+    resp.headers.set('Pragma', 'no-cache')
+    resp.headers.set('Expires', '0')
+    return resp
 
 # ─────────── Routes ───────────
 @app.route('/')
@@ -277,6 +313,370 @@ def api_install_recuva():
             return jsonify({"status": "error", "message": f"启动安装程序失败: {e}"})
     else:
         return jsonify({"status": "ok", "action": "open_url", "url": RECUVADOWNLOADURL, "message": "请先下载安装 Recuva。"})
+
+# ─────────── Recuva 无感自动更新 ───────────
+def log_recuva_update(msg):
+    """记录更新日志（无感，不打断界面）"""
+    try:
+        ts = time.strftime("%Y-%m-%d %H:%M:%S")
+        with open(RECUVaUPDATELOG, "a", encoding="utf-8") as f:
+            f.write(f"[{ts}] {msg}\n")
+    except Exception:
+        pass
+
+
+def get_file_version(path):
+    """读取 PE 文件的版本号（如 '1.54.120.0'），失败返回 None"""
+    if not IS_WIN or not os.path.isfile(path):
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+        v = ctypes.windll.version
+        v.GetFileVersionInfoSizeW.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(wintypes.DWORD)]
+        v.GetFileVersionInfoSizeW.restype = wintypes.DWORD
+        v.GetFileVersionInfoW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p]
+        v.GetFileVersionInfoW.restype = wintypes.BOOL
+        v.VerQueryValueW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR,
+                                    ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.UINT)]
+        v.VerQueryValueW.restype = wintypes.BOOL
+
+        handle = wintypes.DWORD(0)
+        size = v.GetFileVersionInfoSizeW(path, ctypes.byref(handle))
+        if not size:
+            return None
+        buf = ctypes.create_string_buffer(size)
+        if not v.GetFileVersionInfoW(path, 0, size, ctypes.cast(buf, ctypes.c_void_p)):
+            return None
+
+        # 1) 优先用数值型固定文件版本（与代码页无关，最可靠）
+        class VS_FIXEDFILEINFO(ctypes.Structure):
+            _fields_ = [
+                ("dwSignature", wintypes.DWORD),
+                ("dwStrucVersion", wintypes.DWORD),
+                ("dwFileVersionMS", wintypes.DWORD),
+                ("dwFileVersionLS", wintypes.DWORD),
+                ("dwProductVersionMS", wintypes.DWORD),
+                ("dwProductVersionLS", wintypes.DWORD),
+                ("dwFileFlagsMask", wintypes.DWORD),
+                ("dwFileFlags", wintypes.DWORD),
+                ("dwFileOS", wintypes.DWORD),
+                ("dwFileType", wintypes.DWORD),
+                ("dwFileSubtype", wintypes.DWORD),
+                ("dwFileDateMS", wintypes.DWORD),
+                ("dwFileDateLS", wintypes.DWORD),
+            ]
+
+        ffi_ptr = ctypes.c_void_p()
+        ffi_len = wintypes.UINT(ctypes.sizeof(VS_FIXEDFILEINFO))
+        if v.VerQueryValueW(buf, "\\", ctypes.byref(ffi_ptr), ctypes.byref(ffi_len)):
+            ffi = ctypes.cast(ffi_ptr, ctypes.POINTER(VS_FIXEDFILEINFO)).contents
+            ms, ls = ffi.dwFileVersionMS, ffi.dwFileVersionLS
+            return "%d.%d.%d.%d" % ((ms >> 16) & 0xFFFF, ms & 0xFFFF,
+                                     (ls >> 16) & 0xFFFF, ls & 0xFFFF)
+
+        # 2) 回退：字符串版本（处理代码页，ANSI 用 latin-1 兜底）
+        trans_ptr = ctypes.c_void_p()
+        trans_len = wintypes.UINT(0)
+        if not v.VerQueryValueW(buf, "\\VarFileInfo\\Translation",
+                                 ctypes.byref(trans_ptr), ctypes.byref(trans_len)):
+            return None
+        lang = ctypes.cast(trans_ptr, ctypes.POINTER(wintypes.WORD * 2)).contents
+        sub = "\\StringFileInfo\\%04x%04x\\FileVersion" % (lang[0], lang[1])
+        str_ptr = ctypes.c_void_p()
+        str_len = wintypes.UINT(0)
+        if not v.VerQueryValueW(buf, sub, ctypes.byref(str_ptr), ctypes.byref(str_len)):
+            return None
+        if lang[1] == 1200:  # 1200 = UTF-16 (Unicode)
+            return ctypes.wstring_at(str_ptr, str_len.value // 2)
+        raw = ctypes.string_at(str_ptr, str_len.value)
+        return raw.split(b"\x00")[0].decode("latin-1", "replace")
+    except Exception:
+        return None
+
+
+def parse_version(v):
+    parts = []
+    for p in (v or "").split('.'):
+        try:
+            parts.append(int(p))
+        except ValueError:
+            parts.append(0)
+    while len(parts) < 4:
+        parts.append(0)
+    return tuple(parts[:4])
+
+
+def get_recuva_local_version():
+    exe = os.path.join(RECUVAPORTABLE, "recuva.exe")
+    v = get_file_version(exe)
+    if v:
+        return v
+    try:
+        if os.path.isfile(RECUVAVERSIONFILE):
+            with open(RECUVAVERSIONFILE, encoding="utf-8") as f:
+                return f.read().strip() or None
+    except Exception:
+        pass
+    return None
+
+
+def _download_file(url, dest):
+    # urllib.request 原生支持 http(s) 与 file:// 协议
+    import urllib.request
+    req = urllib.request.Request(url, headers={
+        "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                       "(KHTML, like Gecko) Chrome/120.0 Safari/537.36")
+    })
+    with urllib.request.urlopen(req, timeout=120) as resp, open(dest, "wb") as out:
+        while True:
+            chunk = resp.read(65536)
+            if not chunk:
+                break
+            out.write(chunk)
+
+
+def _sha256_of(path):
+    """计算文件 SHA256，失败返回 None"""
+    try:
+        h = __import__("hashlib").sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
+        return h.hexdigest().lower()
+    except Exception:
+        return None
+
+
+def _load_manifest():
+    """拉取更新清单，返回 (version, url, sha256, pkg_type)。
+
+    优先级（均支持运行时通过环境变量覆盖）：
+      1) QRECOVER_RECUVAMANIFESTURL 指向的清单文件（JSON）
+      2) QRECOVER_RECUVADLURL 直接给的直链（版本未知，仅用于下载）
+    清单 JSON 形如：
+      {"version":"x.y.z.0","url":"<直链>","sha256":"<可选>",
+       "type":"zip"|"exe"}   # zip=免权限直接解压；exe=NSIS 静默安装
+    """
+    manifest_url = os.environ.get("QRECOVER_RECUVAMANIFESTURL", "").strip() or RECUVaMANIFESTURL
+    dl_url = os.environ.get("QRECOVER_RECUVADLURL", "").strip() or RECUVaDLURL
+    if manifest_url:
+        try:
+            import urllib.request
+            req = urllib.request.Request(manifest_url, headers=RECUVaHEADERS)
+            with urllib.request.urlopen(req, timeout=30) as r:
+                data = json.loads(r.read().decode("utf-8"))
+            ver = str(data.get("version", "")).strip() or None
+            url = str(data.get("url", "")).strip() or None
+            sha = str(data.get("sha256", "")).strip().lower() or None
+            pkg_type = str(data.get("type", "exe")).strip().lower()
+            if pkg_type not in ("zip", "exe"):
+                pkg_type = "exe"
+            if url:
+                log_recuva_update("已读取更新清单: version=%s, url=%s, type=%s"
+                                  % (ver or "未知", url, pkg_type))
+                return ver, url, sha, pkg_type
+        except Exception as e:
+            log_recuva_update("读取更新清单失败，回退内置安装器: %s" % e)
+    if dl_url:
+        return None, dl_url, None, "exe"
+    return None, None, None, "exe"
+
+
+def _obtain_installer(tmp):
+    """获取一个可用的 Recuva 安装包路径（优先清单/直链，回退内置安装器）。
+
+    返回 (installer_path, pkg_type) ；都不行则返回 (None, None)。
+    """
+    ver, url, sha, pkg_type = _load_manifest()
+    if url:
+        try:
+            ext = ".zip" if pkg_type == "zip" else ".exe"
+            installer = os.path.join(tmp, "recuva_pkg" + ext)
+            _download_file(url, installer)
+            if os.path.getsize(installer) <= 500000:
+                raise RuntimeError("下载的安装包异常（大小不符，可能被拦截）")
+            if sha:
+                actual = _sha256_of(installer)
+                if actual and actual != sha:
+                    raise RuntimeError("校验和不符（期望 %s，实际 %s）" % (sha[:12], actual[:12]))
+                elif actual:
+                    log_recuva_update("校验通过: " + actual[:16])
+            log_recuva_update("已从更新源获取安装包: " + url)
+            return installer, pkg_type
+        except Exception as e:
+            log_recuva_update("更新源下载失败，回退内置安装器: %s" % e)
+    # 回退：使用项目内置的官方安装器（离线可用）
+    if os.path.isfile(RECUVAIINSTALLER):
+        dst = os.path.join(tmp, "bundled_installer.exe")
+        shutil.copy2(RECUVAIINSTALLER, dst)
+        log_recuva_update("使用内置安装包: " + RECUVAIINSTALLER)
+        return dst, "exe"
+    return None, None
+
+
+def _copy_recuva_files(new_exe, install_dir):
+    base = os.path.dirname(new_exe)
+    # 复制主程序与组件；跳过大小异常（<1MB）的文件，防止坏文件污染
+    targets = ["recuva.exe", "recuva64.exe", "RecuvaShell64.dll", "uninst.exe"]
+    for t in targets:
+        src = os.path.join(base, t)
+        if os.path.isfile(src) and os.path.getsize(src) >= 1024:
+            shutil.copy2(src, os.path.join(RECUVAPORTABLE, t))
+        elif os.path.isfile(src):
+            log_recuva_update("跳过异常文件（过小）: %s" % t)
+    lang_src = os.path.join(base, "Lang")
+    if os.path.isdir(lang_src):
+        lang_dst = os.path.join(RECUVAPORTABLE, "Lang")
+        os.makedirs(lang_dst, exist_ok=True)
+        for f in os.listdir(lang_src):
+            s = os.path.join(lang_src, f)
+            if os.path.isfile(s) and os.path.getsize(s) >= 1024:
+                shutil.copy2(s, os.path.join(lang_dst, f))
+
+
+def recuva_auto_update_check(force=False):
+    """后台静默检查并更新 Recuva。
+
+    返回 dict：{"action": "updated"|"uptodate"|"skipped"|"error",
+                "version": <新版本或本地版本>, "message": ...}
+    后台线程调用时可忽略返回值；手动接口会用它做反馈。
+    """
+    result = {"action": "skipped", "version": None, "message": ""}
+    if not RECUVaAUTOUPDATE:
+        return result
+    if not IS_WIN:
+        return result
+    try:
+        now = time.time()
+        state = {}
+        if os.path.isfile(RECUVaUPDATESTATE):
+            try:
+                with open(RECUVaUPDATESTATE, encoding="utf-8") as f:
+                    state = json.load(f)
+            except Exception:
+                state = {}
+        if not force and (now - float(state.get("last_check", 0))) < RECUVaCHECKINTERVAL:
+            log_recuva_update("跳过：距上次检查不足 24 小时")
+            result["action"] = "skipped"
+            result["message"] = "距上次检查不足 24 小时"
+            return result
+
+        log_recuva_update("开始检查 Recuva 更新...")
+        current = get_recuva_local_version()
+        log_recuva_update("当前本地版本: %s" % (current or "未知（首次获取）"))
+
+        # 解析更新源（清单/直链/内置安装器）
+        ver, url, sha, _ = _load_manifest()
+        if ver and current and parse_version(ver) <= parse_version(current):
+            log_recuva_update("清单版本 %s 不高于本地 %s，已是最新" % (ver, current))
+            result["action"] = "uptodate"
+            result["version"] = current
+            result["message"] = "已是最新 (%s)" % current
+            return result
+
+        tmp = tempfile.mkdtemp(prefix="qrecuva_")
+        try:
+            installer, pkg_type = _obtain_installer(tmp)
+            if not installer:
+                raise RuntimeError("无可用安装包（更新源不可达且未内置安装器）")
+            if os.path.getsize(installer) < 500000:
+                raise RuntimeError("安装包异常（大小不符）")
+
+            install_dir = os.path.join(tmp, "inst")
+            os.makedirs(install_dir, exist_ok=True)
+
+            # 优先用 zip 包（无需管理员权限，真正无感）；否则走 NSIS 静默安装
+            if pkg_type == "zip":
+                import zipfile
+                with zipfile.ZipFile(installer) as z:
+                    z.extractall(install_dir)
+            else:
+                # NSIS 静默安装（部分机器需管理员权限，失败则优雅跳过）
+                try:
+                    subprocess.run([installer, "/S", "/D=" + install_dir],
+                                   timeout=300, capture_output=True, check=True)
+                except subprocess.CalledProcessError as e:
+                    # 权限不足等：保持当前版本，静默跳过，不弹窗
+                    raise RuntimeError("安装器静默安装失败（可能需管理员权限）: %s" % e)
+
+            new_exe = None
+            for root, _, files in os.walk(install_dir):
+                if "recuva.exe" in files:
+                    new_exe = os.path.join(root, "recuva.exe")
+                    break
+            if not new_exe:
+                raise RuntimeError("安装包中未找到 recuva.exe")
+
+            new_ver = get_file_version(new_exe)
+            log_recuva_update("安装包版本: %s" % (new_ver or "未知"))
+            if current and new_ver and parse_version(new_ver) <= parse_version(current):
+                log_recuva_update("安装包版本不高于本地，无需更新")
+                result["action"] = "uptodate"
+                result["version"] = current
+                result["message"] = "已是最新 (%s)" % current
+                return result
+
+            _copy_recuva_files(new_exe, install_dir)
+            with open(RECUVAVERSIONFILE, "w", encoding="utf-8") as f:
+                f.write(new_ver or (current or "0.0.0.0"))
+            log_recuva_update("Recuva 已静默更新至 %s" % (new_ver or "新版本"))
+            result["action"] = "updated"
+            result["version"] = new_ver or current
+            result["message"] = "已更新至 %s" % (new_ver or "新版本")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+            try:
+                state["last_check"] = time.time()
+                state["installed_version"] = get_recuva_local_version()
+                with open(RECUVaUPDATESTATE, "w", encoding="utf-8") as f:
+                    json.dump(state, f, indent=2)
+            except Exception:
+                pass
+    except Exception as e:
+        # 无感：任何失败仅记录日志，不影响主程序
+        log_recuva_update("更新跳过（无感）: %s" % e)
+        result["action"] = "error"
+        result["message"] = str(e)
+    return result
+
+
+def start_recuva_updater():
+    """启动无感更新后台线程（仅启动一次）"""
+    global _updater_started
+    if _updater_started:
+        return
+    if not RECUVaAUTOUPDATE or not IS_WIN:
+        return
+    _updater_started = True
+    try:
+        t = threading.Thread(target=recuva_auto_update_check,
+                            name="recuva-updater", daemon=True)
+        t.start()
+    except Exception as e:
+        log_recuva_update("更新线程启动失败: %s" % e)
+
+
+@app.route('/api/recuva/update', methods=['POST'])
+def api_recuva_update():
+    """手动触发 Recuva 无感更新（force），同步返回结果摘要"""
+    try:
+        res = recuva_auto_update_check(force=True)
+        logs = []
+        if os.path.isfile(RECUVaUPDATELOG):
+            with open(RECUVaUPDATELOG, encoding="utf-8") as f:
+                logs = [l.strip() for l in f.readlines() if l.strip()][-8:]
+        return jsonify({
+            "status": "ok",
+            "action": res.get("action"),
+            "version": res.get("version"),
+            "message": res.get("message"),
+            "current_version": get_recuva_local_version(),
+            "recent_log": logs,
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 
 @app.route('/api/drives')
 def api_drives():
@@ -1798,6 +2198,8 @@ HTML = r"""
 def main():
     # 单实例检测：确保只有一个进程
     mutex = ensure_single_instance()
+    # 启动 Recuva 无感自动更新（后台线程，不打断界面）
+    start_recuva_updater()
     print("Starting QRecover Web UI v1.1.7...")
     print("Open browser at: http://127.0.0.1:5000")
     try:
