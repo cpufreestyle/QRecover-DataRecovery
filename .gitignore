@@ -36,6 +36,9 @@ recuva_portable/
 # baseline update package + manifest ARE committed for out-of-box use
 recuva_update_state.json
 
+# AI assistant runtime config (local LM Studio/Ollama settings; NOT committed)
+ai_config.json
+
 # PyInstaller internal / bundled binaries
 _internal/
 

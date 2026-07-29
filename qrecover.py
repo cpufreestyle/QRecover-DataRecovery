@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """QRecover Web UI - TestDisk/PhotoRec/Recuva GUI"""
 import os
 import sys
+import locale
 import shutil
 import subprocess
 import ctypes
@@ -21,6 +23,27 @@ try:
         sys.stderr.reconfigure(encoding="utf-8")
 except Exception:
     pass
+
+def _decode_cli(raw):
+    """将子进程（tasklist/wmic/powershell/testdisk 等）输出的字节安全解码为文本。
+
+    开发机通常通过 .bat 设置 chcp 65001（UTF-8 控制台），而 PyInstaller 冻结的
+    release 可执行文件（console=False）没有控制台，子进程会按系统 OEM/ANSI 代码页
+    （中文 Windows 为 cp936/GBK）输出。固定用单一编码解码会在此场景下产生乱码，
+    因此依次尝试 UTF-8 -> 系统首选编码 -> gbk，确保 release 构建正常显示中文。
+    """
+    if not raw:
+        return ""
+    if isinstance(raw, str):
+        return raw
+    candidates = ["utf-8", locale.getpreferredencoding(False) or "gbk", "gbk"]
+    for enc in candidates:
+        try:
+            return raw.decode(enc)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return raw.decode("utf-8", "replace")
+
 from ai_assistant import assistant as ai_assistant
 
 # ── 单实例检测：确保只有一个 QRecoverWeb 进程运行 ──
@@ -33,7 +56,7 @@ def _kill_old_instances():
     try:
         result = subprocess.run(
             ['netstat', '-ano', '-p', 'TCP'],
-            capture_output=True, text=True, timeout=5
+            capture_output=True, encoding='utf-8', errors='replace', timeout=5
         )
         for line in result.stdout.splitlines():
             line = line.strip()
@@ -159,7 +182,7 @@ def _start_process_watcher(exe_name):
                 )
                 out, _ = proc.communicate(timeout=5)
                 if isinstance(out, bytes):
-                    out = out.decode('gbk', errors='replace')
+                    out = _decode_cli(out)
                 # 如果 tasklist 输出不包含 exe 名，说明进程已退出
                 if exe_name.lower() not in out.lower():
                     with _ACTIVE_PROCESS_LOCK:
@@ -882,7 +905,7 @@ HTML = r"""
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', '微软雅黑', 'PingFang SC', 'Noto Sans CJK SC', sans-serif;
             background: var(--bg);
             color: var(--text);
             min-height: 100vh;

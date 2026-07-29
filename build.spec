@@ -12,8 +12,9 @@ a = Analysis(
     pathex=[str(BASE)],
     binaries=[],
     datas=[
-        ('qrecover.py', '.'),
-        ('ai_assistant.py', '.'),
+        # 注意：qrecover.py / ai_assistant.py 是经 import 收集的模块，PyInstaller 会将其
+        # 编译进归档并以 UTF-8 加载，不要再以原始 .py 形式打包为数据文件，否则在某些环境下
+        # 可能以系统 ANSI 代码页（GBK）读取而引发中文乱码。仅保留真正的资源文件。
         ('qrecover_icon.ico', '.'),
         ('qrecover_icon.png', '.'),
         ('testdisk-7.3-WIP', 'testdisk-7.3-WIP'),
@@ -50,7 +51,7 @@ a = Analysis(
 )
 
 version_info = {
-    'version': '2.0.0',
+    'version': '2.0.1',
     'company_name': 'QRecover',
     'file_description': 'QRecover Desktop - Data Recovery Toolkit',
     'internal_name': 'QRecoverDesktop',

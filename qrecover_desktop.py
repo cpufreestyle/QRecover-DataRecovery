@@ -12,9 +12,9 @@ from pathlib import Path
 # ── Windows 控制台 UTF-8（修复中文乱码）──
 try:
     if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     if hasattr(sys.stderr, "reconfigure"):
-        sys.stderr.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
 

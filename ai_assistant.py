@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """QRecover 智能恢复助手 - AI 引擎 (支持 LLM API + 本地规则兜底)"""
 import os
 import sys
@@ -411,6 +412,11 @@ class AIAssistant:
         url = self._llm_endpoint()
         data = json.dumps(payload).encode('utf-8')
         last_err = None
+        # 本地推理服务（LM Studio / Ollama，通常跑在 localhost）必须绕过系统 HTTP 代理，
+        # 否则 urllib 会把请求转给代理（如 Clash），代理无法回环访问而返回 502 Bad Gateway。
+        from urllib.parse import urlparse
+        host = (urlparse(url).hostname or '').lower()
+        use_proxy_bypass = host in ('localhost', '127.0.0.1', '::1')
         for attempt in range(3):   # 重试 2 次
             try:
                 req = urllib.request.Request(
@@ -418,7 +424,12 @@ class AIAssistant:
                     headers=self._request_headers(),
                     method='POST'
                 )
-                resp = urllib.request.urlopen(req, timeout=30)
+                if use_proxy_bypass:
+                    resp = urllib.request.build_opener(
+                        urllib.request.ProxyHandler({})
+                    ).open(req, timeout=30)
+                else:
+                    resp = urllib.request.urlopen(req, timeout=30)
                 return resp
             except Exception as e:
                 last_err = e
