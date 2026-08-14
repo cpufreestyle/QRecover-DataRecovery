@@ -349,6 +349,26 @@ def api_install_recuva():
     else:
         return jsonify({"status": "ok", "action": "open_url", "url": RECUVADOWNLOADURL, "message": "请先下载安装 Recuva。"})
 
+@app.route('/api/recuva/install', methods=['POST'])
+def api_recuva_install():
+    """一键安装 Recuva：优先无感更新源自动落地，失败则引导手动下载。"""
+    try:
+        recuva_auto_update_check(force=True)
+        if find_recuva():
+            ver = get_recuva_local_version()
+            return jsonify({
+                "status": "ok", "installed": True,
+                "message": "Recuva 已安装完成（版本 %s），可直接使用。" % (ver or ""),
+            })
+        return jsonify({
+            "status": "ok", "installed": False, "action": "open_url",
+            "url": RECUVADOWNLOADURL,
+            "message": ("未能自动获取 Recuva（未配置更新源）。已为你打开官方下载页，安装后本工具会自动识别；"
+                        "也可把便携版 recuva.exe 放到 tools/recuva/ 目录。"),
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 # ─────────── Recuva 无感自动更新 ───────────
 def log_recuva_update(msg):
     """记录更新日志（无感，不打断界面）"""
@@ -1558,6 +1578,42 @@ HTML = r"""
             background: var(--gradient-2); color: white; font-weight: 700; font-size: 0.8rem;
         }
         .ai-config .ai-hint { font-size: 0.68rem; color: var(--text-dim); line-height: 1.5; }
+
+        /* ══ 组件安装向导 ══ */
+        .setup-panel {
+            background: linear-gradient(135deg, rgba(108,99,255,0.08), rgba(0,214,143,0.05));
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 20px 18px;
+            margin-bottom: 22px;
+        }
+        .setup-panel.hidden { display: none; }
+        .setup-desc { font-size: 0.82rem; color: var(--text-dim); margin-bottom: 16px; line-height: 1.5; }
+        .setup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+        .setup-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 18px 16px;
+            text-align: center;
+            display: flex; flex-direction: column; align-items: center; gap: 8px;
+        }
+        .setup-icon { font-size: 2.2rem; }
+        .setup-name { font-weight: 700; font-size: 0.92rem; }
+        .setup-status { font-size: 0.76rem; color: var(--text-dim); min-height: 18px; }
+        .setup-status.ready { color: var(--success); }
+        .setup-status.pending { color: var(--warning); }
+        .setup-status.working { color: var(--info); }
+        .setup-btn {
+            margin-top: 4px;
+            padding: 9px 16px; border: none; border-radius: 10px; cursor: pointer;
+            background: var(--gradient-1); color: #fff; font-size: 0.82rem; font-weight: 700;
+            transition: all 0.2s; width: 100%;
+        }
+        .setup-btn:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-1px); }
+        .setup-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+        .setup-btn.done { background: var(--gradient-2); }
+        @media (max-width: 480px) { .setup-grid { grid-template-columns: 1fr; } }
     </style>
     <script>
         // 全局错误兜底：忽略跨域/无详情的脚本错误（预览 WebView 常见），
@@ -1615,6 +1671,27 @@ HTML = r"""
                 <div class="tool-desc">图形化文件恢复向导</div>
                 <span class="tool-badge badge-gui" id="badgeRecuva">GUI</span>
             </div>
+        </div>
+
+        <!-- ══ 组件安装向导 ══ -->
+        <div class="setup-panel hidden" id="setupPanel">
+            <div class="section-title">🛠️ 首次使用 · 一键安装恢复引擎</div>
+            <p class="setup-desc">开始恢复前，请先安装恢复引擎（仅首次，自动下载并缓存到本地 <code>tools/</code> 目录）：</p>
+            <div class="setup-grid">
+                <div class="setup-card">
+                    <div class="setup-icon">🔧</div>
+                    <div class="setup-name">TestDisk / PhotoRec</div>
+                    <div class="setup-status" id="setupStatusTestDisk">检测中…</div>
+                    <button class="setup-btn" id="btnInstallTestDisk" onclick="installTestDisk()">一键安装</button>
+                </div>
+                <div class="setup-card">
+                    <div class="setup-icon">🎨</div>
+                    <div class="setup-name">Recuva（可选）</div>
+                    <div class="setup-status" id="setupStatusRecuva">检测中…</div>
+                    <button class="setup-btn" id="btnInstallRecuva" onclick="installRecuva()">一键安装</button>
+                </div>
+            </div>
+            <div class="status" id="setupStatus" style="margin-top:14px;"></div>
         </div>
 
         <!-- 驱动器选择 -->
@@ -1907,21 +1984,117 @@ HTML = r"""
             }, 2000); // 每 2 秒轮询一次
         }
 
-        // 安装 Recuva
-        async function installRecuva() {
-            try {
-                const res = await fetch('/api/install_recuva');
-                const data = await res.json();
-                if (data.status === 'ok' && data.action === 'open_url') {
-                    window.open(data.url, '_blank');
-                    showStatus('info', data.message);
-                } else if (data.status === 'ok') {
-                    showStatus('info', data.message || 'Recuva 安装程序已启动，请在弹出的窗口中完成安装。');
+        // ── 组件安装向导 ──
+        function showSetupStatus(type, msg) {
+            const el = document.getElementById('setupStatus');
+            if (!el) return;
+            const icons = { success: '✅', error: '❌', info: 'ℹ️', warning: '⚠️' };
+            el.className = 'status show ' + (type || '');
+            el.innerHTML = `<span class="status-icon">${icons[type] || '📋'}</span><span>${msg}</span>`;
+        }
+
+        function setSetupCard(kind, status, text, installed) {
+            const statusEl = document.getElementById('setupStatus' + (kind === 'testdisk' ? 'TestDisk' : 'Recuva'));
+            const btn = document.getElementById('btnInstall' + (kind === 'testdisk' ? 'TestDisk' : 'Recuva'));
+            if (statusEl) {
+                statusEl.className = 'setup-status ' + (status || '');
+                statusEl.textContent = text;
+            }
+            if (btn) {
+                if (installed) {
+                    btn.textContent = '✅ 已安装';
+                    btn.classList.add('done');
+                    btn.disabled = true;
                 } else {
-                    showStatus('error', data.message);
+                    btn.textContent = '一键安装';
+                    btn.classList.remove('done');
+                    btn.disabled = false;
+                }
+            }
+        }
+
+        async function refreshSetup() {
+            try {
+                const res = await fetch('/api/tools');
+                const tools = await res.json();
+                const panel = document.getElementById('setupPanel');
+                if (!panel) return;
+                let anyMissing = false;
+
+                if (tools.testdisk) {
+                    setSetupCard('testdisk', 'ready', '✅ 已就绪', true);
+                } else {
+                    anyMissing = true;
+                    setSetupCard('testdisk', 'pending', '⬇️ 待安装（约 20MB）', false);
+                }
+
+                if (tools.recuva) {
+                    setSetupCard('recuva', 'ready', '✅ 已就绪', true);
+                } else {
+                    anyMissing = true;
+                    setSetupCard('recuva', 'pending', '⬇️ 待安装（可选）', false);
+                }
+
+                panel.classList.toggle('hidden', !anyMissing);
+            } catch (e) {
+                console.warn('安装向导检测失败:', e);
+            }
+        }
+
+        async function installTestDisk() {
+            const btn = document.getElementById('btnInstallTestDisk');
+            const statusEl = document.getElementById('setupStatusTestDisk');
+            if (btn) btn.disabled = true;
+            if (statusEl) { statusEl.className = 'setup-status working'; statusEl.textContent = '⏳ 正在下载并解压…'; }
+            showSetupStatus('info', '正在下载 TestDisk / PhotoRec（约 20MB），请稍候…');
+            try {
+                const res = await fetch('/api/testdisk/ensure', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ force: false })
+                });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    setSetupCard('testdisk', 'ready', '✅ 已就绪', true);
+                    showSetupStatus('success', 'TestDisk / PhotoRec 安装完成！现在可以开始恢复。');
+                } else {
+                    setSetupCard('testdisk', 'pending', '❌ 安装失败', false);
+                    showSetupStatus('error', (data.message || '安装失败') + ' 你也可以手动下载并解压到 tools/testdisk/ 目录。');
                 }
             } catch (e) {
-                showStatus('error', '启动安装程序失败：' + e.message);
+                setSetupCard('testdisk', 'pending', '❌ 网络错误', false);
+                showSetupStatus('error', '安装请求失败：' + e.message);
+            } finally {
+                if (btn) btn.disabled = false;
+                checkTools();
+            }
+        }
+
+        // 安装 Recuva（向导面板与工具提示共用）
+        async function installRecuva() {
+            const btn = document.getElementById('btnInstallRecuva');
+            const statusEl = document.getElementById('setupStatusRecuva');
+            if (btn) btn.disabled = true;
+            if (statusEl) { statusEl.className = 'setup-status working'; statusEl.textContent = '⏳ 正在尝试安装…'; }
+            showSetupStatus('info', '正在尝试自动安装 Recuva…');
+            try {
+                const res = await fetch('/api/recuva/install', { method: 'POST' });
+                const data = await res.json();
+                if (data.installed) {
+                    setSetupCard('recuva', 'ready', '✅ 已就绪', true);
+                    showSetupStatus('success', data.message || 'Recuva 安装完成！');
+                } else if (data.action === 'open_url') {
+                    window.open(data.url, '_blank');
+                    setSetupCard('recuva', 'pending', '请在浏览器中下载并安装', false);
+                    showSetupStatus('warning', '已为你打开 Recuva 官方下载页，请下载并安装。安装后本工具会自动识别（也可把便携版放到 tools/recuva/）。');
+                } else {
+                    showSetupStatus('error', data.message || 'Recuva 安装失败');
+                }
+            } catch (e) {
+                showSetupStatus('error', '安装请求失败：' + e.message);
+            } finally {
+                if (btn) btn.disabled = false;
+                checkTools();
             }
         }
 
@@ -1970,6 +2143,7 @@ HTML = r"""
         async function init() {
             await initTheme();
         checkTools();
+            await refreshSetup();
             await loadDrives();
             // 初始检查一次进程状态
             const res = await fetch('/api/status');

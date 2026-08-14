@@ -48,6 +48,12 @@ QRecoverWeb_latest.exe
 QRecoverWeb.exe.manifest
 testdisk.zip
 
+# Runtime tools cache (downloaded TestDisk/PhotoRec/Recuva; NOT committed)
+tools/
+
+# Temp release scripts (may contain tokens; NOT committed)
+_gitee_rel.py
+
 # Temp / test scratch files
 _logtail.txt
 _test_*.json
