@@ -217,21 +217,28 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 log.info('QRecover starting...')
 
-# TestDisk 路径
-TESTDISK_DIR = os.path.join(BASE_DIR, "testdisk-7.3-WIP")
+# TestDisk / PhotoRec 路径（按需下载到 tools/testdisk，不随安装包分发）
+TESTDISK_DIR = os.path.join(BASE_DIR, "tools", "testdisk")
 TESTDISK_EXE = os.path.join(TESTDISK_DIR, "testdisk_win.exe")
 PHOTOREC_EXE = os.path.join(TESTDISK_DIR, "photorec_win.exe")
+# 官方 7.3 WIP Windows 压缩包（约 ~20MB，首次用时联网下载解压）
+TESTDISK_ZIP_URL = os.environ.get(
+    "QRECOVER_TESTDISK_URL",
+    "https://www.cgsecurity.org/testdisk-7.3-WIP.win64.zip",
+).strip()
+TESTDISK_ZIP_NAME = os.path.basename(TESTDISK_ZIP_URL) or "testdisk-7.3-WIP.win64.zip"
 
-# Recuva 路径
+# Recuva 路径（由无感更新机制联网获取，不随安装包分发内置副本/安装器）
 RECUVAPATHS = [
     r"C:\Program Files\Recuva\recuva.exe",
     r"C:\Program Files (x86)\Recuva\recuva.exe",
     os.path.join(BASE_DIR, "recuva_portable", "recuva.exe"),
+    os.path.join(BASE_DIR, "tools", "recuva", "recuva.exe"),
 ]
-RECUVAIINSTALLER = os.path.join(BASE_DIR, "Recuva_1.54.120_Machine_X64_nullsoft_en-US.exe")
+RECUVAIINSTALLER = None  # 不再内置安装器，缺省引导用户联网下载（见 /api/install_recuva）
 
 # ── Recuva 无感自动更新（启动时后台静默从官网抓取最新版）──
-RECUVAPORTABLE = os.path.join(BASE_DIR, "recuva_portable")
+RECUVAPORTABLE = os.path.join(BASE_DIR, "tools", "recuva")
 RECUVAVERSIONFILE = os.path.join(RECUVAPORTABLE, "version.txt")
 # 注：CCleaner 官方下载为前端动态生成的签名地址，无固定直链，
 # 故不再硬编码官网直链，改用下方可配置的 manifest 更新源。
@@ -305,11 +312,16 @@ def find_recuva():
 # ─────────── API ───────────
 @app.route('/api/tools')
 def api_tools():
-    """返回可用工具列表"""
+    """返回可用工具列表与下载需求"""
     tools = {
         "testdisk": os.path.isfile(TESTDISK_EXE),
-        "recuva": find_recuva() is not None
+        "photorec": os.path.isfile(PHOTOREC_EXE),
+        "recuva": find_recuva() is not None,
     }
+    # TestDisk 未就绪时提示前端可触发按需下载
+    if not tools["testdisk"]:
+        tools["testdisk_needs_download"] = True
+        tools["testdisk_url"] = TESTDISK_ZIP_URL
     return jsonify(tools)
 
 RECUVADOWNLOADURL = 'https://www.ccleaner.com/recuva/download'
@@ -461,6 +473,78 @@ def _download_file(url, dest):
             if not chunk:
                 break
             out.write(chunk)
+
+
+# ─────────── TestDisk / PhotoRec 按需下载 ───────────
+_TESTDISK_DOWNLOADING = False
+_TESTDISK_DOWNLOAD_LOCK = threading.Lock()
+
+
+def ensure_testdisk(force=False):
+    """确保 TestDisk/PhotoRec 已就绪（首次用时按需联网下载官方压缩包并解压）。
+
+    返回 (ok: bool, message: str)。ok=False 时 message 提示用户手动下载。
+    """
+    global _TESTDISK_DOWNLOADING
+    if os.path.isfile(TESTDISK_EXE) and os.path.isfile(PHOTOREC_EXE):
+        return True, "ok"
+
+    with _TESTDISK_DOWNLOAD_LOCK:
+        if _TESTDISK_DOWNLOADING:
+            return False, "正在下载 TestDisk，请稍候..."
+        if not force and (os.path.isfile(TESTDISK_EXE) and os.path.isfile(PHOTOREC_EXE)):
+            return True, "ok"
+        _TESTDISK_DOWNLOADING = True
+    try:
+        tmp = tempfile.mkdtemp(prefix="qtd_")
+        zip_path = os.path.join(tmp, TESTDISK_ZIP_NAME)
+        log.info("开始下载 TestDisk: %s", TESTDISK_ZIP_URL)
+        _download_file(TESTDISK_ZIP_URL, zip_path)
+        if os.path.getsize(zip_path) < 1_000_000:
+            raise RuntimeError("下载的 TestDisk 压缩包异常（过小，可能被拦截）")
+        os.makedirs(TESTDISK_DIR, exist_ok=True)
+        import zipfile
+        with zipfile.ZipFile(zip_path) as z:
+            # 压缩包内含 testdisk-7.3-WIP/ 顶层目录，解压后归一化到 tools/testdisk
+            z.extractall(tmp)
+        # 找到解压出的 testdisk 目录
+        src_dir = None
+        for root, dirs, _ in os.walk(tmp):
+            if os.path.isfile(os.path.join(root, "testdisk_win.exe")):
+                src_dir = root
+                break
+        if not src_dir:
+            raise RuntimeError("压缩包内未找到 testdisk_win.exe")
+        for name in os.listdir(src_dir):
+            s = os.path.join(src_dir, name)
+            d = os.path.join(TESTDISK_DIR, name)
+            if os.path.isfile(s):
+                shutil.copy2(s, d)
+            elif os.path.isdir(s):
+                shutil.copytree(s, d, dirs_exist_ok=True)
+        if not (os.path.isfile(TESTDISK_EXE) and os.path.isfile(PHOTOREC_EXE)):
+            raise RuntimeError("TestDisk 解压后缺少可执行文件")
+        return True, "TestDisk 下载并解压完成"
+    except Exception as e:
+        log.error("TestDisk 下载/解压失败: %s", e)
+        return False, ("TestDisk 自动下载失败（%s）。请手动下载并解压到：%s\n"
+                       "下载地址：%s" % (e, TESTDISK_DIR, TESTDISK_ZIP_URL))
+    finally:
+        _TESTDISK_DOWNLOADING = False
+        try:
+            shutil.rmtree(tmp, ignore_errors=True)
+        except Exception:
+            pass
+
+
+@app.route('/api/testdisk/ensure', methods=['POST'])
+def api_ensure_testdisk():
+    """按需下载 TestDisk/PhotoRec（首次运行或手动触发）"""
+    force = request.get_json(silent=True) or {}
+    force = bool(force.get('force', False))
+    ok, msg = ensure_testdisk(force=force)
+    return jsonify({"status": "ok" if ok else "error", "message": msg,
+                    "ready": ok and os.path.isfile(TESTDISK_EXE)})
 
 
 def _sha256_of(path):
@@ -734,7 +818,9 @@ def api_scan():
 
     if tool == 'testdisk':
         if not os.path.isfile(TESTDISK_EXE):
-            return jsonify({"status": "error", "message": f"TestDisk not found at {TESTDISK_EXE}"})
+            ok, msg = ensure_testdisk()
+            if not ok:
+                return jsonify({"status": "error", "message": msg})
         try:
             run_tool(TESTDISK_EXE, TESTDISK_DIR)
             return jsonify({"status": "ok", "message": f"✅ TestDisk 已在新窗口启动（UAC 提示已弹出），{drive_tip}"})
@@ -768,7 +854,9 @@ def api_recover():
 
     if tool == 'testdisk':
         if not os.path.isfile(PHOTOREC_EXE):
-            return jsonify({"status": "error", "message": f"PhotoRec not found at {PHOTOREC_EXE}"})
+            ok, msg = ensure_testdisk()
+            if not ok:
+                return jsonify({"status": "error", "message": msg})
         try:
             run_tool(PHOTOREC_EXE, TESTDISK_DIR)
             return jsonify({"status": "ok", "message": f"✅ PhotoRec 已在新窗口启动（UAC 提示已弹出）！恢复的文件将保存到: {out_dir}"})

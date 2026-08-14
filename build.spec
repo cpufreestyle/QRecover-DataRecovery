@@ -15,11 +15,10 @@ a = Analysis(
         # 注意：qrecover.py / ai_assistant.py 是经 import 收集的模块，PyInstaller 会将其
         # 编译进归档并以 UTF-8 加载，不要再以原始 .py 形式打包为数据文件，否则在某些环境下
         # 可能以系统 ANSI 代码页（GBK）读取而引发中文乱码。仅保留真正的资源文件。
+        # TestDisk/PhotoRec 与 Recuva 不再随包分发，改为运行时按需联网下载
+        # （见 qrecover.py ensure_testdisk / recuva 无感更新），以将 EXE 体积压到 100MB 内。
         ('qrecover_icon.ico', '.'),
         ('qrecover_icon.png', '.'),
-        ('testdisk-7.3-WIP', 'testdisk-7.3-WIP'),
-        ('recuva_portable', 'recuva_portable'),
-        ('Recuva_1.54.120_Machine_X64_nullsoft_en-US.exe', '.'),
     ],
     hiddenimports=[
         'flask',
@@ -45,6 +44,13 @@ a = Analysis(
         'pandas',
         'PIL',
         'sqlalchemy',
+        'scipy',
+        'pydoc',
+        'doctest',
+        'unittest',
+        'pyaudio',
+        'cryptography',
+        'OpenSSL',
     ],
     noarchive=False,
     optimize=0,

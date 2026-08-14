@@ -52,6 +52,13 @@ testdisk.zip
 _logtail.txt
 _test_*.json
 _test_*.log
+_create_release.py
+_upload_release.py
+_u.py
+_u_out.log
+_u_err.log
+build_stdout.log
+build_stderr.log
 _e2e*.py
 _e2e*.json
 _e2e*.log

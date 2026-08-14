@@ -40,10 +40,26 @@ log = logging.getLogger(__name__)
 
 # ── 导入 Flask 应用 ──
 sys.path.insert(0, BASE_DIR)
-from qrecover import app, start_recuva_updater
+from qrecover import app, start_recuva_updater, ensure_testdisk
 
 # 启动 Recuva 无感自动更新（后台线程）
 start_recuva_updater()
+
+# 首次启动时后台按需下载 TestDisk/PhotoRec（不阻塞主界面，失败仅记录）
+try:
+    import threading as _td
+    def _bg_ensure_testdisk():
+        try:
+            ok, msg = ensure_testdisk()
+            if ok:
+                log.info("TestDisk 已就绪（后台下载完成）")
+            else:
+                log.warning("TestDisk 后台下载未就绪：%s", msg)
+        except Exception as e:
+            log.warning("TestDisk 后台下载异常：%s", e)
+    _td.Thread(target=_bg_ensure_testdisk, name="testdisk-bootstrap", daemon=True).start()
+except Exception as e:
+    log.warning("启动 TestDisk 后台下载失败：%s", e)
 
 # ── 配置文件路径 ──
 CONFIG_FILE = os.path.join(BASE_DIR, 'qrecover_desktop.json')
