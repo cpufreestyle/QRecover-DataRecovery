@@ -53,6 +53,7 @@ tools/
 
 # Temp release scripts (may contain tokens; NOT committed)
 _gitee_rel.py
+_gh_rel.py
 
 # Temp / test scratch files
 _logtail.txt
