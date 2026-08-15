@@ -1,3 +1,5 @@
 flask>=3.0
 pywebview>=5.0
-pyinstaller>=6.0
+
+# 仅打包构建 EXE 时需要（源码运行无需安装）：
+#   pip install pyinstaller>=6.0

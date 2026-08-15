@@ -1,0 +1,166 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QRecover v2.0.4</title>
+        <link rel="stylesheet" href="/static/style.css">
+    <script>
+        // 全局错误兜底：忽略跨域/无详情的脚本错误（预览 WebView 常见），
+        // 避免其冒泡为弹窗；真实错误仅记录，不阻断页面交互。
+        window.addEventListener('error', function (e) {
+            if (!e || !e.message || e.message === 'Script error.' || e.message === '') {
+                if (e && e.preventDefault) { try { e.preventDefault(); } catch (_) {} }
+                return false;
+            }
+            console.warn('[QRecover] 已捕获页面错误:', e.message);
+        }, true);
+        window.addEventListener('unhandledrejection', function (e) {
+            console.warn('[QRecover] 未处理的 Promise 拒绝（已忽略）:', e && e.reason);
+        });
+    </script>
+</head>
+<body>
+    <div class="container">
+        <!-- 头部 -->
+        <div class="header">
+            <div class="logo-icon">💾</div>
+            <h1>QRecover</h1>
+            <p class="subtitle">专业数据恢复工具集</p>
+            <!-- 主题切换器 -->
+            <div class="theme-switcher">
+                <span class="theme-label" id="currentTheme">🌸 紫罗兰</span>
+                <div class="theme-picker" id="themePicker">
+                    <button class="theme-btn active" data-theme="violet" onclick="applyTheme('violet')" title="紫罗兰">🌸</button>
+                    <button class="theme-btn" data-theme="aurora" onclick="applyTheme('aurora')" title="极光绿">🌿</button>
+                    <button class="theme-btn" data-theme="sunset" onclick="applyTheme('sunset')" title="落日橙">🌅</button>
+                    <button class="theme-btn" data-theme="cyber" onclick="applyTheme('cyber')" title="赛博朋克">🤖</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ══ 状态栏 ══ -->
+        <div class="status-bar">
+            <span>🛡️ QRecover Web UI</span>
+            <span class="status-sep">|</span>
+            <span id="processStatus">空闲中</span>
+        </div>
+
+        <!-- 工具切换（滑动式） -->
+        <div class="tool-switch" id="toolSwitch" data-tool="testdisk">
+            <div class="tool-btn active" id="btnTestDisk" onclick="switchTool('testdisk')">
+                <span class="tool-icon">🔧</span>
+                <div class="tool-name">TestDisk</div>
+                <div class="tool-desc">分区表修复 & 文件恢复</div>
+                <span class="tool-badge badge-cli" id="badgeTestDisk">CLI / TUI</span>
+            </div>
+            <div class="tool-btn" id="btnRecuva" onclick="switchTool('recuva')">
+                <span class="tool-icon">🎨</span>
+                <div class="tool-name">Recuva</div>
+                <div class="tool-desc">图形化文件恢复向导</div>
+                <span class="tool-badge badge-gui" id="badgeRecuva">GUI</span>
+            </div>
+        </div>
+
+        <!-- ══ 组件安装向导 ══ -->
+        <div class="setup-panel hidden" id="setupPanel">
+            <div class="section-title">🛠️ 首次使用 · 一键安装恢复引擎</div>
+            <p class="setup-desc">开始恢复前，请先安装恢复引擎（仅首次，自动下载并缓存到本地 <code>tools/</code> 目录）：</p>
+            <div class="setup-grid">
+                <div class="setup-card">
+                    <div class="setup-icon">🔧</div>
+                    <div class="setup-name">TestDisk / PhotoRec</div>
+                    <div class="setup-status" id="setupStatusTestDisk">检测中…</div>
+                    <button class="setup-btn" id="btnInstallTestDisk" onclick="installTestDisk()">一键安装</button>
+                </div>
+                <div class="setup-card">
+                    <div class="setup-icon">🎨</div>
+                    <div class="setup-name">Recuva（可选）</div>
+                    <div class="setup-status" id="setupStatusRecuva">检测中…</div>
+                    <button class="setup-btn" id="btnInstallRecuva" onclick="installRecuva()">一键安装</button>
+                </div>
+            </div>
+            <div class="status" id="setupStatus" style="margin-top:14px;"></div>
+        </div>
+
+        <!-- 驱动器选择 -->
+        <div class="section">
+            <div class="section-title">📀 选择目标驱动器</div>
+            <div class="drive-list" id="driveList"></div>
+        </div>
+
+        <!-- 操作按钮 -->
+        <div class="action-row">
+            <button class="btn btn-scan" id="btnScan" disabled onclick="scanDrive()">
+                🔍 扫描磁盘
+            </button>
+            <button class="btn btn-recover" id="btnRecover" disabled onclick="recoverFiles()">
+                💾 恢复文件
+            </button>
+        </div>
+
+        <!-- 状态消息 -->
+        <div class="status" id="status"></div>
+
+        <!-- 工具提示 -->
+        <div class="tool-hint" id="recuvaHint">
+            ⚠️ Recuva 未安装。请先&nbsp;
+            <button class="hint-btn" onclick="installRecuva()">下载安装 Recuva</button>
+            &nbsp;或使用 TestDisk 进行恢复。
+        </div>
+
+        <!-- 底部 -->
+        <div class="footer">
+            QRecover v2.0.4 · Powered by Flask · 💻 Made with ❤️
+        </div>
+    </div>
+
+        <script src="/static/app.js" defer></script>
+    <!-- ══ AI 智能恢复助手 ══ -->
+    <button class="ai-fab" id="aiFab" title="智能恢复助手">🤖</button>
+    <div class="ai-panel" id="aiPanel">
+        <div class="ai-header">
+            <span style="font-size:1.3rem;">🤖</span>
+            <div>
+                <div class="ai-title">智能恢复助手</div>
+                <div class="ai-sub">描述你的情况，AI 帮你选方案</div>
+            </div>
+            <button class="ai-config-btn" id="aiConfigBtn" title="AI 设置">⚙</button>
+            <button class="ai-clear" id="aiClear" title="清空对话">🗑</button>
+            <button class="ai-close" id="aiClose" title="收起">✕</button>
+        </div>
+        <div class="ai-config" id="aiConfig">
+            <label>AI 模式</label>
+            <select id="cfgProvider">
+                <option value="heuristic">本地智能分析（无需联网，开箱即用）</option>
+                <option value="openai">LLM API（OpenAI 兼容）</option>
+                <option value="ollama">本地 Ollama</option>
+            </select>
+            <label>API 地址 (Base URL)</label>
+            <input id="cfgBaseUrl" placeholder="https://api.openai.com/v1" value="https://api.openai.com/v1">
+            <label>模型名</label>
+            <input id="cfgModel" placeholder="gpt-3.5-turbo" value="gpt-3.5-turbo">
+            <label>API Key</label>
+            <input id="cfgApiKey" type="password" placeholder="sk-..." >
+            <button class="ai-save" id="cfgSave">保存设置</button>
+            <div class="ai-hint">本地模式无需任何配置即可使用。配置 LLM 后，助手将获得更强的语义理解能力。API Key 仅保存在本地 ai_config.json。</div>
+        </div>
+        <div class="ai-messages" id="aiMessages">
+            <div class="ai-msg bot">👋 你好！我是 QRecover 智能恢复助手。<br><br>请描述你遇到的数据丢失情况，例如：<br>· "我不小心把U盘格式化了，里面有旅行照片"<br>· "D盘分区打不开，提示未格式化"<br>· "误删了重要的Word文档"<br><br>我会帮你推荐最合适的恢复工具和步骤。</div>
+        </div>
+        <div class="ai-quick" id="aiQuick">
+            <span class="ai-chip" onclick="aiSendQuick('U盘被格式化了，里面有照片')">U盘格式化·照片</span>
+            <span class="ai-chip" onclick="aiSendQuick('D盘打不开，提示未格式化')">分区RAW·打不开</span>
+            <span class="ai-chip" onclick="aiSendQuick('误删了重要文档')">误删文档</span>
+            <span class="ai-chip" onclick="aiSendQuick('回收站被清空了')">回收站清空</span>
+        </div>
+        <div class="ai-input-row">
+            <textarea class="ai-input" id="aiInput" rows="1" placeholder="描述你的情况..." onkeydown="aiKey(event)"></textarea>
+            <button class="ai-send" id="aiSend" onclick="aiSend()">发送</button>
+        </div>
+    </div>
+
+        <script src="/static/ai.js" defer></script>
+</body>
+</html>

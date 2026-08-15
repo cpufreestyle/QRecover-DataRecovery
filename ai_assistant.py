@@ -11,12 +11,6 @@ import threading
 import socket
 import urllib.request
 import urllib.error
-import http.client
-
-try:
-    import ssl
-except Exception:  # pragma: no cover
-    ssl = None
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, 'ai_config.json')

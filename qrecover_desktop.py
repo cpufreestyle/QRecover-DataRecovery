@@ -97,13 +97,26 @@ config = load_config()
 # 优先使用 5000；若被其他程序占用则自动选用空闲端口（避免 WinError 10013 崩溃）
 SERVER_PORT = find_free_port(5000)
 
+def _wait_port(port, timeout=8.0):
+    """轮询等待本地端口就绪（Flask 通常 <0.5s 启动，替代固定 sleep 加快窗口弹出）"""
+    import socket
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with socket.create_connection(('127.0.0.1', port), timeout=0.25):
+                return True
+        except OSError:
+            time.sleep(0.05)
+    return False
+
 def run_flask():
     log.info("Flask 服务启动中（端口 %d）...", SERVER_PORT)
     app.run(host='127.0.0.1', port=SERVER_PORT, debug=False, use_reloader=False)
 
 flask_thread = threading.Thread(target=run_flask, daemon=True)
 flask_thread.start()
-time.sleep(1)  # 等待 Flask 就绪
+if not _wait_port(SERVER_PORT):
+    log.warning("Flask 服务 8 秒内未就绪，继续创建窗口...")
 
 # ══════════════════════════════════════════════════════════════
 # 桌面窗口 (pywebview)
@@ -155,7 +168,7 @@ class QRecoverAPI:
         return {"ok": True}
 
     def get_version(self):
-        return "QRecover Desktop v2.0.3"
+        return "QRecover Desktop v2.0.4"
 
     def open_external(self, url):
         import webbrowser
@@ -192,7 +205,7 @@ DESKTOP_BRIDGE_JS = """
     if (subtitle) subtitle.textContent = '桌面版 · 专业数据恢复工具集';
 
     var footer = document.querySelector('.footer');
-    if (footer) footer.innerHTML = 'QRecover Desktop v2.0.3 · Powered by Flask + WebView';
+    if (footer) footer.innerHTML = 'QRecover Desktop v2.0.4 · Powered by Flask + WebView';
 
     // 注入桌面端样式
     var style = document.createElement('style');
@@ -222,7 +235,7 @@ DESKTOP_BRIDGE_JS = """
         window.QRecoverDesktop.close();
     };
 
-    console.log('QRecover Desktop v2.0.3 启动完成');
+    console.log('QRecover Desktop v2.0.4 启动完成');
 })();
 """
 
@@ -269,7 +282,7 @@ window.events.loaded += on_loaded
 
 # ── 启动 ──
 if __name__ == '__main__':
-    log.info("QRecover Desktop v2.0.3 启动完成")
+    log.info("QRecover Desktop v2.0.4 启动完成")
 
     # 优先 Edge WebView2 (Windows 10/11 内置)，回退到 CEF
     gui_order = ['edgechromium', 'cef', 'mshtml']

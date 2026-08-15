@@ -33,9 +33,11 @@ python qrecover.py
 
 ```
 QRecover/
-├── qrecover.py              # Flask 主程序（含内嵌 HTML/JS 前端）
+├── qrecover.py              # Flask 主程序（API 路由 + 工具启动/下载/更新）
+├── web/                     # 前端静态资源（index.html / style.css / app.js / ai.js）
 ├── qrecover_desktop.py      # 桌面壳（pywebview 封装）
 ├── ai_assistant.py          # 本地规则 + LLM 恢复建议
+├── version_utils.py         # PE 文件版本号读取（共用工具模块）
 ├── make_recuva_update.py    # 构建 Recuva 更新包
 ├── QRecover_Desktop.bat     # Windows 桌面启动器
 ├── build.spec               # PyInstaller 打包配置
@@ -52,6 +54,13 @@ QRecover/
 | Recuva | GUI 文件恢复 | 直接启动 |
 
 ## 🎯 版本历史
+
+### v2.0.4 — 全面优化 🚀
+- **代码结构**：前端 HTML/CSS/JS 从 `qrecover.py` 剥离为独立静态文件（`web/`），主程序从 2400+ 行瘦身至 ~900 行
+- **去重复**：PE 版本号读取抽取为 `version_utils.py` 公共模块（qrecover 与 make_recuva_update 共用）
+- **性能**：桌面启动等待从固定 1s 改为端口轮询（窗口弹出更快）；`/api/drives` 加短缓存；页面不可见时暂停驱动器轮询；静态资源支持 ETag/304 协商缓存
+- **打包**：`web/` 静态资源纳入 PyInstaller datas；扩充 excludes（pydoc_data/lib2to3）；`pyinstaller` 移出运行时依赖
+- **体验**：AI 面板阻塞式 `alert()` 改为轻量 Toast；桌面版外链走 WebView 桥接打开；成功状态消息 8s 自动淡出
 
 ### v2.0.3 — 一键安装向导 + 体验优化 🛠️
 - 新增「首次使用·一键安装恢复引擎」向导（TestDisk/PhotoRec/Recuva 自动下载）

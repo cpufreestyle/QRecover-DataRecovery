@@ -31,56 +31,11 @@ import os
 import sys
 import zipfile
 
+from version_utils import get_file_version
+
 BASE = os.path.dirname(os.path.abspath(__file__))
 PORTABLE = os.path.join(BASE, "recuva_portable")
 EXE = os.path.join(PORTABLE, "recuva.exe")
-
-
-def get_file_version(path):
-    """与 qrecover.py 保持一致：读取 PE 数值型文件版本号"""
-    if not os.path.isfile(path):
-        return None
-    try:
-        import ctypes
-        from ctypes import wintypes
-        v = ctypes.windll.version
-        v.GetFileVersionInfoSizeW.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(wintypes.DWORD)]
-        v.GetFileVersionInfoSizeW.restype = wintypes.DWORD
-        v.GetFileVersionInfoW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p]
-        v.GetFileVersionInfoW.restype = wintypes.BOOL
-        v.VerQueryValueW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR,
-                                    ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.UINT)]
-        v.VerQueryValueW.restype = wintypes.BOOL
-
-        handle = wintypes.DWORD(0)
-        size = v.GetFileVersionInfoSizeW(path, ctypes.byref(handle))
-        if not size:
-            return None
-        buf = ctypes.create_string_buffer(size)
-        if not v.GetFileVersionInfoW(path, 0, size, ctypes.cast(buf, ctypes.c_void_p)):
-            return None
-
-        class VS_FIXEDFILEINFO(ctypes.Structure):
-            _fields_ = [
-                ("dwSignature", wintypes.DWORD), ("dwStrucVersion", wintypes.DWORD),
-                ("dwFileVersionMS", wintypes.DWORD), ("dwFileVersionLS", wintypes.DWORD),
-                ("dwProductVersionMS", wintypes.DWORD), ("dwProductVersionLS", wintypes.DWORD),
-                ("dwFileFlagsMask", wintypes.DWORD), ("dwFileFlags", wintypes.DWORD),
-                ("dwFileOS", wintypes.DWORD), ("dwFileType", wintypes.DWORD),
-                ("dwFileSubtype", wintypes.DWORD), ("dwFileDateMS", wintypes.DWORD),
-                ("dwFileDateLS", wintypes.DWORD),
-            ]
-
-        ffi_ptr = ctypes.c_void_p()
-        ffi_len = wintypes.UINT(ctypes.sizeof(VS_FIXEDFILEINFO))
-        if not v.VerQueryValueW(buf, "\\", ctypes.byref(ffi_ptr), ctypes.byref(ffi_len)):
-            return None
-        ffi = ctypes.cast(ffi_ptr, ctypes.POINTER(VS_FIXEDFILEINFO)).contents
-        ms, ls = ffi.dwFileVersionMS, ffi.dwFileVersionLS
-        return "%d.%d.%d.%d" % ((ms >> 16) & 0xFFFF, ms & 0xFFFF,
-                                 (ls >> 16) & 0xFFFF, ls & 0xFFFF)
-    except Exception:
-        return None
 
 
 def sha256_of(path):
