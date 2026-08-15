@@ -48,31 +48,13 @@ from ai_assistant import assistant as ai_assistant
 
 # ── 单实例检测：确保只有一个 QRecoverWeb 进程运行 ──
 def _kill_old_instances():
-    """终止所有占用端口 5000 的旧进程（排除自身）"""
+    """终止旧的 QRecover 进程（按进程名匹配，避免误杀其他占用端口的服务）"""
     current_pid = os.getpid()
     pids_to_kill = set()
 
-    # 方法1：查找所有监听端口 5000 的进程
-    try:
-        result = subprocess.run(
-            ['netstat', '-ano', '-p', 'TCP'],
-            capture_output=True, encoding='utf-8', errors='replace', timeout=5
-        )
-        for line in result.stdout.splitlines():
-            line = line.strip()
-            if ':5000' in line and 'LISTENING' in line.upper():
-                parts = line.split()
-                if parts:
-                    try:
-                        pid = int(parts[-1])
-                        if pid != current_pid and pid > 0:
-                            pids_to_kill.add(pid)
-                    except ValueError:
-                        pass
-    except Exception as e:
-        logging.warning(f"netstat 检测失败: {e}")
-
-    # 方法2：查找 QRecoverWeb.exe 进程
+    # 仅按进程名清理旧 QRecover 实例；不再按固定端口（5000）清理，
+    # 以免误杀恰好占用 5000 的其他程序（如其他本地服务）。
+    # 方法：查找 QRecoverWeb.exe 进程
     try:
         result = subprocess.run(
             ['tasklist', '/FI', 'IMAGENAME eq QRecoverWeb.exe', '/FO', 'CSV', '/NH'],
@@ -235,8 +217,6 @@ RECUVAPATHS = [
     os.path.join(BASE_DIR, "recuva_portable", "recuva.exe"),
     os.path.join(BASE_DIR, "tools", "recuva", "recuva.exe"),
 ]
-RECUVAIINSTALLER = None  # 不再内置安装器，缺省引导用户联网下载（见 /api/install_recuva）
-
 # ── Recuva 无感自动更新（启动时后台静默从官网抓取最新版）──
 RECUVAPORTABLE = os.path.join(BASE_DIR, "tools", "recuva")
 RECUVAVERSIONFILE = os.path.join(RECUVAPORTABLE, "version.txt")
@@ -336,18 +316,6 @@ def api_status():
             return jsonify({"status": "busy", "message": "有工具进程正在运行中，请先关闭当前工具窗口。"})
         else:
             return jsonify({"status": "idle", "message": "无工具进程运行。"})
-
-@app.route('/api/install_recuva')
-def api_install_recuva():
-    """启动 Recuva 安装程序或打开下载页面"""
-    if os.path.isfile(RECUVAIINSTALLER):
-        try:
-            subprocess.Popen([RECUVAIINSTALLER])
-            return jsonify({"status": "ok", "message": "Recuva 安装程序已启动，请在弹出的窗口中完成安装。"})
-        except Exception as e:
-            return jsonify({"status": "error", "message": f"启动安装程序失败: {e}"})
-    else:
-        return jsonify({"status": "ok", "action": "open_url", "url": RECUVADOWNLOADURL, "message": "请先下载安装 Recuva。"})
 
 @app.route('/api/recuva/install', methods=['POST'])
 def api_recuva_install():
@@ -476,23 +444,34 @@ def get_recuva_local_version():
     return None
 
 
-def _download_file(url, dest):
+def _download_file(url, dest, retries=3):
     # 本地文件路径（无 scheme，绝对或相对）：直接复制，支持 clone 后任意目录
     if "://" not in url and os.path.isfile(url):
         shutil.copyfile(url, dest)
         return
-    # http(s)/file:// 交由 urllib
+    # http(s)/file:// 交由 urllib，带重试以应对不稳定的网络/代理
     import urllib.request
-    req = urllib.request.Request(url, headers={
-        "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                       "(KHTML, like Gecko) Chrome/120.0 Safari/537.36")
-    })
-    with urllib.request.urlopen(req, timeout=120) as resp, open(dest, "wb") as out:
-        while True:
-            chunk = resp.read(65536)
-            if not chunk:
-                break
-            out.write(chunk)
+    import time
+    last_err = None
+    for attempt in range(1, retries + 1):
+        try:
+            req = urllib.request.Request(url, headers={
+                "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                               "(KHTML, like Gecko) Chrome/120.0 Safari/537.36")
+            })
+            with urllib.request.urlopen(req, timeout=120) as resp, open(dest, "wb") as out:
+                while True:
+                    chunk = resp.read(65536)
+                    if not chunk:
+                        break
+                    out.write(chunk)
+            return
+        except Exception as e:
+            last_err = e
+            log.warning("下载失败（第 %d/%d 次）：%s", attempt, retries, e)
+            if attempt < retries:
+                time.sleep(min(2 ** attempt, 8))
+    raise RuntimeError("下载失败：%s" % last_err)
 
 
 # ─────────── TestDisk / PhotoRec 按需下载 ───────────
@@ -647,13 +626,7 @@ def _obtain_installer(tmp):
             log_recuva_update("已从更新源获取安装包: " + url)
             return installer, pkg_type
         except Exception as e:
-            log_recuva_update("更新源下载失败，回退内置安装器: %s" % e)
-    # 回退：使用项目内置的官方安装器（离线可用）
-    if os.path.isfile(RECUVAIINSTALLER):
-        dst = os.path.join(tmp, "bundled_installer.exe")
-        shutil.copy2(RECUVAIINSTALLER, dst)
-        log_recuva_update("使用内置安装包: " + RECUVAIINSTALLER)
-        return dst, "exe"
+            log_recuva_update("更新源下载失败: %s" % e)
     return None, None
 
 
@@ -985,7 +958,7 @@ HTML = r"""
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QRecover v1.1.4</title>
+    <title>QRecover v2.0.3</title>
     <style>
         :root {
             --bg: #0a0a0f;
@@ -1045,13 +1018,12 @@ HTML = r"""
             font-weight: 400;
         }
 
-        /* ══ 61 儿童节特别版 ══ */
-        #confetti-canvas {
-            position: fixed;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            pointer-events: none;
-            z-index: 9999;
+        /* 桌面端可拖拽标题栏（浏览器端由 JS 隐藏） */
+        .status-bar {
+            position: fixed; top: 0; left: 0; right: 0; height: 30px;
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            background: rgba(0,0,0,0.28); color: var(--text-dim);
+            font-size: 0.72rem; letter-spacing: 0.5px; z-index: 50;
         }
 
         /* 安装按钮 */
@@ -1631,7 +1603,6 @@ HTML = r"""
     </script>
 </head>
 <body>
-    <canvas id="confetti-canvas"></canvas>
     <div class="container">
         <!-- 头部 -->
         <div class="header">
@@ -1722,7 +1693,7 @@ HTML = r"""
 
         <!-- 底部 -->
         <div class="footer">
-            QRecover v1.1.4 · Powered by Flask · 💻 Made with ❤️
+            QRecover v2.0.3 · Powered by Flask · 💻 Made with ❤️
         </div>
     </div>
 
@@ -2013,33 +1984,7 @@ HTML = r"""
             }
         }
 
-        async function refreshSetup() {
-            try {
-                const res = await fetch('/api/tools');
-                const tools = await res.json();
-                const panel = document.getElementById('setupPanel');
-                if (!panel) return;
-                let anyMissing = false;
 
-                if (tools.testdisk) {
-                    setSetupCard('testdisk', 'ready', '✅ 已就绪', true);
-                } else {
-                    anyMissing = true;
-                    setSetupCard('testdisk', 'pending', '⬇️ 待安装（约 20MB）', false);
-                }
-
-                if (tools.recuva) {
-                    setSetupCard('recuva', 'ready', '✅ 已就绪', true);
-                } else {
-                    anyMissing = true;
-                    setSetupCard('recuva', 'pending', '⬇️ 待安装（可选）', false);
-                }
-
-                panel.classList.toggle('hidden', !anyMissing);
-            } catch (e) {
-                console.warn('安装向导检测失败:', e);
-            }
-        }
 
         async function installTestDisk() {
             const btn = document.getElementById('btnInstallTestDisk');
@@ -2098,31 +2043,29 @@ HTML = r"""
             }
         }
 
-        // 检查工具状态
+        // 检查工具状态 + 刷新安装向导（合并原 refreshSetup）
         async function checkTools() {
             try {
                 const res = await fetch('/api/tools');
                 const tools = await res.json();
-                
+
+                // 工具徽章
                 const recuvaBtn = document.getElementById('btnRecuva');
                 const recuvaBadge = document.getElementById('badgeRecuva');
                 const hint = document.getElementById('recuvaHint');
-                
                 if (!tools.recuva) {
                     recuvaBtn.classList.add('disabled');
                     recuvaBadge.className = 'tool-badge badge-unavailable';
                     recuvaBadge.textContent = '未安装';
                     hint.classList.add('show');
-                    if (currentTool === 'recuva') {
-                        switchTool('testdisk');
-                    }
+                    if (currentTool === 'recuva') switchTool('testdisk');
                 } else {
                     recuvaBtn.classList.remove('disabled');
                     recuvaBadge.className = 'tool-badge badge-gui';
                     recuvaBadge.textContent = 'GUI';
                     hint.classList.remove('show');
                 }
-                
+
                 const testdiskBtn = document.getElementById('btnTestDisk');
                 const testdiskBadge = document.getElementById('badgeTestDisk');
                 if (!tools.testdisk) {
@@ -2134,6 +2077,25 @@ HTML = r"""
                     testdiskBadge.className = 'tool-badge badge-cli';
                     testdiskBadge.textContent = 'CLI / TUI';
                 }
+
+                // 安装向导面板：仅当任一恢复引擎缺失时显示
+                const panel = document.getElementById('setupPanel');
+                if (panel) {
+                    let anyMissing = false;
+                    if (tools.testdisk) {
+                        setSetupCard('testdisk', 'ready', '✅ 已就绪', true);
+                    } else {
+                        anyMissing = true;
+                        setSetupCard('testdisk', 'pending', '⬇️ 待安装（约 20MB）', false);
+                    }
+                    if (tools.recuva) {
+                        setSetupCard('recuva', 'ready', '✅ 已就绪', true);
+                    } else {
+                        anyMissing = true;
+                        setSetupCard('recuva', 'pending', '⬇️ 待安装（可选）', false);
+                    }
+                    panel.classList.toggle('hidden', !anyMissing);
+                }
             } catch (e) {
                 console.warn('工具检测失败:', e);
             }
@@ -2142,8 +2104,7 @@ HTML = r"""
         // 初始化
         async function init() {
             await initTheme();
-        checkTools();
-            await refreshSetup();
+            await checkTools();
             await loadDrives();
             // 初始检查一次进程状态
             const res = await fetch('/api/status');
@@ -2156,87 +2117,9 @@ HTML = r"""
         }
 
         init();
-        setInterval(loadDrives, 15000);
+        setInterval(loadDrives, 60000);
 
-        // ══ 61 儿童节彩屑动画 ══
-        (function() {
-            const canvas = document.getElementById('confetti-canvas');
-            if (!canvas) return;
-            const ctx = canvas.getContext('2d');
-            if (!ctx) return;
-            let W, H;
-            const colors = ['#ff6b6b','#ffa07a','#ffd700','#98fb98','#87ceeb','#dda0dd','#ff69b4','#00ced1'];
-            const shapes = ['circle','rect','star'];
-            let particles = [];
 
-            function resize() {
-                W = canvas.width = window.innerWidth;
-                H = canvas.height = window.innerHeight;
-            }
-            resize();
-            window.addEventListener('resize', resize);
-
-            class Particle {
-                constructor() { this.reset(true); }
-                reset(init) {
-                    this.x = Math.random() * W;
-                    this.y = init ? Math.random() * H : -10;
-                    this.size = Math.random() * 6 + 3;
-                    this.color = colors[Math.floor(Math.random() * colors.length)];
-                    this.shape = shapes[Math.floor(Math.random() * shapes.length)];
-                    this.vy = Math.random() * 1.2 + 0.4;
-                    this.vx = Math.random() * 0.6 - 0.3;
-                    this.rot = Math.random() * 360;
-                    this.rotV = Math.random() * 3 - 1.5;
-                    this.opacity = Math.random() * 0.5 + 0.3;
-                }
-                update() {
-                    this.y += this.vy;
-                    this.x += this.vx + Math.sin(this.y * 0.01) * 0.3;
-                    this.rot += this.rotV;
-                    if (this.y > H + 10) this.reset(false);
-                }
-                draw() {
-                    ctx.save();
-                    ctx.translate(this.x, this.y);
-                    ctx.rotate(this.rot * Math.PI / 180);
-                    ctx.globalAlpha = this.opacity;
-                    ctx.fillStyle = this.color;
-                    if (this.shape === 'circle') {
-                        ctx.beginPath();
-                        ctx.arc(0, 0, this.size, 0, Math.PI * 2);
-                        ctx.fill();
-                    } else if (this.shape === 'rect') {
-                        ctx.fillRect(-this.size, -this.size/2, this.size*2, this.size);
-                    } else {
-                        drawStar(ctx, 0, 0, 5, this.size, this.size/2);
-                    }
-                    ctx.restore();
-                }
-            }
-
-            function drawStar(ctx, cx, cy, spikes, outerR, innerR) {
-                let rot = -Math.PI / 2;
-                const step = Math.PI / spikes;
-                ctx.beginPath();
-                for (let i = 0; i < spikes * 2; i++) {
-                    const r = i % 2 === 0 ? outerR : innerR;
-                    ctx.lineTo(cx + Math.cos(rot) * r, cy + Math.sin(rot) * r);
-                    rot += step;
-                }
-                ctx.closePath();
-                ctx.fill();
-            }
-
-            for (let i = 0; i < 35; i++) particles.push(new Particle());
-
-            function animate() {
-                ctx.clearRect(0, 0, W, H);
-                particles.forEach(p => { p.update(); p.draw(); });
-                requestAnimationFrame(animate);
-            }
-            animate();
-        })();
     
         // 点击外部关闭主题选择器
         document.addEventListener('click', function(e) {
@@ -2494,16 +2377,39 @@ HTML = r"""
 </html>
 """
 
+# ─────────── 端口自动选择 ───────────
+def find_free_port(preferred=5000):
+    """优先使用 preferred 端口；若被占用（如 WinError 10013）则让系统分配空闲端口。"""
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(('127.0.0.1', preferred))
+        return preferred
+    except OSError:
+        s.close()
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(('127.0.0.1', 0))
+        port = s.getsockname()[1]
+        s.close()
+        return port
+    finally:
+        try:
+            s.close()
+        except OSError:
+            pass
+
+
 # ─────────── Main ───────────
 def main():
     # 单实例检测：确保只有一个进程
     mutex = ensure_single_instance()
     # 启动 Recuva 无感自动更新（后台线程，不打断界面）
     start_recuva_updater()
-    print("Starting QRecover Web UI v1.1.7...")
-    print("Open browser at: http://127.0.0.1:5000")
+    port = find_free_port(5000)
+    print("Starting QRecover Web UI v2.0.3...")
+    print("Open browser at: http://127.0.0.1:%d" % port)
     try:
-        app.run(host='127.0.0.1', port=5000, debug=False)
+        app.run(host='127.0.0.1', port=port, debug=False)
     finally:
         # 程序退出时释放互斥体
         ctypes.windll.kernel32.CloseHandle(mutex)

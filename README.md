@@ -4,8 +4,8 @@
 
 ## ✨ 特性
 
-- 🎨 **暗色渐变主题** — 紫/青/粉渐变，动画浮动背景
-- 🎠 **六一儿童节特别版** — 彩屑动画、星星闪烁、气球浮动、彩虹横幅
+- 🎨 **暗色渐变主题** — 紫/青/粉多套主题，渐变背景
+- 🛠️ **首次使用一键安装向导** — 自动检测并引导下载 TestDisk/PhotoRec/Recuva
 - 💾 **TestDisk** — 分区扫描/修复（TUI 新窗口启动）
 - 📄 **PhotoRec** — 文件恢复（支持图片/文档/视频等类型）
 - 🔍 **Recuva** — GUI 文件恢复工具
@@ -17,7 +17,7 @@
 
 ### 方式一：直接运行 EXE
 
-下载最新版 [QRecoverWeb.exe](https://gitee.com/cpufreestyle/QRecover/releases)，双击运行，浏览器访问 `http://127.0.0.1:5000`
+下载最新版 [QRecoverDesktop.exe](https://github.com/cpufreestyle/QRecover-DataRecovery/releases)（Gitee 镜像见 [Releases](https://gitee.com/cpufreestyle/QRecover/releases)），双击运行即可，首次启动会自动弹出安装向导。
 
 ### 方式二：从源码运行
 
@@ -32,14 +32,16 @@ python qrecover.py
 ## 📁 项目结构
 
 ```
-C:\Tools\TestDiskGUI\
-├── qrecover.py              # Flask 主程序（含内嵌 HTML 模板）
-├── QRecover.bat             # Windows 启动器
-├── QRecoverWeb_latest.exe   # 打包版可执行文件
-├── testdisk-7.3-WIP/        # TestDisk/PhotoRec
-├── recuva_portable/          # Recuva 便携版
+QRecover/
+├── qrecover.py              # Flask 主程序（含内嵌 HTML/JS 前端）
+├── qrecover_desktop.py      # 桌面壳（pywebview 封装）
+├── ai_assistant.py          # 本地规则 + LLM 恢复建议
+├── make_recuva_update.py    # 构建 Recuva 更新包
+├── QRecover_Desktop.bat     # Windows 桌面启动器
+├── build.spec               # PyInstaller 打包配置
 └── README.md
 ```
+> TestDisk/PhotoRec/Recuva 不再随仓库分发，改为**首次启动由向导按需联网下载**并缓存到 `tools/`。
 
 ## 🛠️ 工具说明
 
@@ -50,6 +52,12 @@ C:\Tools\TestDiskGUI\
 | Recuva | GUI 文件恢复 | 直接启动 |
 
 ## 🎯 版本历史
+
+### v2.0.3 — 一键安装向导 + 体验优化 🛠️
+- 新增「首次使用·一键安装恢复引擎」向导（TestDisk/PhotoRec/Recuva 自动下载）
+- 统一版本号、移除常驻节日彩屑动画、降低无谓轮询
+- 下载增加重试机制，提升弱网/代理环境下的成功率
+- 合并重复的工具检测逻辑，启动更轻快
 
 ### v1.1.0 — 六一儿童节特别版 🎪
 - UI 全面重构：多彩渐变主题 + 动画背景
@@ -66,9 +74,8 @@ C:\Tools\TestDiskGUI\
 
 ## ⚙️ 依赖
 
-- **Python 3.8+** + Flask
-- **TestDisk & PhotoRec 7.x**（已内置）
-- **Recuva**（便携版，已内置）
+- **Python 3.8+** + Flask + pywebview（源码运行）
+- **TestDisk & PhotoRec / Recuva**：首次启动由内置向导按需联网下载并缓存到 `tools/`，无需手动配置
 
 ## 📜 许可证
 

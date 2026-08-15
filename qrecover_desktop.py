@@ -40,7 +40,7 @@ log = logging.getLogger(__name__)
 
 # ── 导入 Flask 应用 ──
 sys.path.insert(0, BASE_DIR)
-from qrecover import app, start_recuva_updater, ensure_testdisk
+from qrecover import app, start_recuva_updater, ensure_testdisk, find_free_port
 
 # 启动 Recuva 无感自动更新（后台线程）
 start_recuva_updater()
@@ -94,9 +94,12 @@ config = load_config()
 # ══════════════════════════════════════════════════════════════
 # Flask 后台线程
 # ══════════════════════════════════════════════════════════════
+# 优先使用 5000；若被其他程序占用则自动选用空闲端口（避免 WinError 10013 崩溃）
+SERVER_PORT = find_free_port(5000)
+
 def run_flask():
-    log.info("Flask 服务启动中...")
-    app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)
+    log.info("Flask 服务启动中（端口 %d）...", SERVER_PORT)
+    app.run(host='127.0.0.1', port=SERVER_PORT, debug=False, use_reloader=False)
 
 flask_thread = threading.Thread(target=run_flask, daemon=True)
 flask_thread.start()
@@ -152,7 +155,7 @@ class QRecoverAPI:
         return {"ok": True}
 
     def get_version(self):
-        return "QRecover Desktop v2.0.0"
+        return "QRecover Desktop v2.0.3"
 
     def open_external(self, url):
         import webbrowser
@@ -189,15 +192,14 @@ DESKTOP_BRIDGE_JS = """
     if (subtitle) subtitle.textContent = '桌面版 · 专业数据恢复工具集';
 
     var footer = document.querySelector('.footer');
-    if (footer) footer.innerHTML = 'QRecover Desktop v2.0.0 · Powered by Flask + WebView';
+    if (footer) footer.innerHTML = 'QRecover Desktop v2.0.3 · Powered by Flask + WebView';
 
     // 注入桌面端样式
     var style = document.createElement('style');
     style.textContent = '.window-controls{position:fixed;top:12px;right:16px;display:flex;gap:8px;z-index:10000;-webkit-app-region:no-drag;}' +
         '.win-btn{width:32px;height:32px;border-radius:8px;border:1px solid #1e1e2e;background:#12121a;color:#8888a0;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;transition:all 0.2s;line-height:1;}' +
         '.win-btn:hover{background:#1a1a26;color:#e8e8f0;border-color:#6c63ff;}' +
-        '.win-btn.close-btn:hover{background:#ff4757;color:white;border-color:#ff4757;}' +
-        '#confetti-canvas{-webkit-app-region:no-drag;}';
+        '.win-btn.close-btn:hover{background:#ff4757;color:white;border-color:#ff4757;}';
     document.head.appendChild(style);
 
     // 添加窗口控制按钮
@@ -220,7 +222,7 @@ DESKTOP_BRIDGE_JS = """
         window.QRecoverDesktop.close();
     };
 
-    console.log('QRecover Desktop v2.0.0 启动完成');
+    console.log('QRecover Desktop v2.0.3 启动完成');
 })();
 """
 
@@ -244,7 +246,7 @@ log.info("启动 QRecover Desktop...")
 
 window = webview.create_window(
     title='QRecover Desktop - 数据恢复工具',
-    url='http://127.0.0.1:5000',
+    url='http://127.0.0.1:%d' % SERVER_PORT,
     width=config.get('width', 1000),
     height=config.get('height', 700),
     min_size=(680, 480),
@@ -267,7 +269,7 @@ window.events.loaded += on_loaded
 
 # ── 启动 ──
 if __name__ == '__main__':
-    log.info("QRecover Desktop v2.0.0 启动完成")
+    log.info("QRecover Desktop v2.0.3 启动完成")
 
     # 优先 Edge WebView2 (Windows 10/11 内置)，回退到 CEF
     gui_order = ['edgechromium', 'cef', 'mshtml']
