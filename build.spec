@@ -67,7 +67,7 @@ a = Analysis(
 )
 
 version_info = {
-    'version': '2.0.5',
+    'version': '2.0.6',
     'company_name': 'QRecover',
     'file_description': 'QRecover Desktop - Data Recovery Toolkit',
     'internal_name': 'QRecoverDesktop',

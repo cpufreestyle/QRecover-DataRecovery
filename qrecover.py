@@ -258,7 +258,7 @@ _updater_started = False
 
 IS_WIN = sys.platform == "win32"
 
-APP_VERSION = "2.0.5"
+APP_VERSION = "2.0.6"
 
 # 前端静态资源目录（源码运行：web/；PyInstaller onefile：解包目录内 web/）
 if getattr(sys, 'frozen', False):
@@ -1074,7 +1074,7 @@ def main() -> None:
     # 启动 Recuva 无感自动更新（后台线程，不打断界面）
     start_recuva_updater()
     port = find_free_port(5000)
-    print("Starting QRecover Web UI v2.0.5...")
+    print("Starting QRecover Web UI v2.0.6...")
     print("Open browser at: http://127.0.0.1:%d" % port)
     try:
         app.run(host='127.0.0.1', port=port, debug=False)

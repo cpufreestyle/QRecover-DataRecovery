@@ -20,6 +20,21 @@ CONFIG_FILE = os.path.join(BASE_DIR, 'ai_config.json')
 # 过长会让“服务未运行”场景的回退等待过久，配合 TCP 探活后 30s 足够。
 LLM_TIMEOUT = 30
 
+# ── 算力来源（OpenAI 兼容厂商预设） ──
+# 选择某个云端厂商后，前端会自动填入对应 base_url 与默认模型；
+# 后端只需按 OpenAI 兼容协议调用即可。key 为 provider 值。
+VENDOR_DEFAULTS = {
+    "openai":    ("https://api.openai.com/v1", "gpt-3.5-turbo"),
+    "deepseek":  ("https://api.deepseek.com/v1", "deepseek-chat"),
+    "dashscope": ("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
+    "zhipu":     ("https://open.bigmodel.cn/api/paas/v4", "glm-4-flash"),
+    "moonshot":  ("https://api.moonshot.cn/v1", "moonshot-v1-8k"),
+    "qianfan":   ("https://qianfan.baidubce.com/v2", "ernie-4.0-8k"),
+    "custom":    ("https://api.openai.com/v1", "gpt-3.5-turbo"),
+}
+# 需要 API Key 的云端兼容厂商（local 模式、ollama 不需要）
+CLOUD_COMPAT_PROVIDERS = set(VENDOR_DEFAULTS.keys())
+
 log = logging.getLogger(__name__)
 
 # ── 系统提示词 ──
@@ -164,11 +179,11 @@ class AIAssistant:
     def _should_use_llm(self, provider):
         if not self.config.get('enabled', True):
             return False
-        if provider == 'openai':
-            return bool(self.config.get('api_key'))
         if provider == 'ollama':
             return True   # ollama 本地运行，无需 key
-        return False
+        if provider in CLOUD_COMPAT_PROVIDERS:
+            return bool(self.config.get('api_key'))
+        return False   # heuristic 等本地模式
 
     # ── 错误友好化 ──
     def _friendly_error(self, e):
@@ -404,7 +419,11 @@ class AIAssistant:
         if provider == 'ollama':
             base = self.config.get('ollama_base_url', 'http://localhost:11434/v1').rstrip('/')
         else:
-            base = self.config.get('base_url', 'https://api.openai.com/v1').rstrip('/')
+            # 云端兼容厂商：未手动填写 base_url 时，按厂商预设兜底
+            base = self.config.get('base_url') or VENDOR_DEFAULTS.get(
+                provider, ("https://api.openai.com/v1", "")
+            )[0]
+            base = base.rstrip('/')
         return f"{base}/chat/completions"
 
     def _do_request(self, payload, stream=False):

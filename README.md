@@ -57,6 +57,12 @@ QRecover/
 
 ## 🎯 版本历史
 
+### v2.0.6 — AI 算力来源可选 🧠
+- AI 设置新增「算力来源」下拉，覆盖多家 OpenAI 兼容厂商
+- 新增预设：OpenAI / DeepSeek / 阿里云通义千问 / 智谱 GLM / Moonshot Kimi / 百度千帆 / 本地 Ollama / 自定义
+- 选择厂商后自动填入对应的 Base URL 与默认模型，用户仅需填 API Key
+- 后端 `_should_use_llm` 支持全部云端兼容厂商；`_llm_endpoint` 在未填 URL 时按厂商预设兜底
+
 ### v2.0.5 — Recuva 安装检测增强 🔍
 - 修复 Recuva 已安装但界面仍显示"未安装"的问题
 - 增强 `find_recuva()`：支持注册表（App Paths / Piriform / Uninstall）、PATH 环境变量、Piriform 官方默认目录

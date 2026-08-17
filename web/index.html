@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QRecover v2.0.5</title>
+    <title>QRecover v2.0.6</title>
         <link rel="stylesheet" href="/static/style.css">
     <script>
         // 全局错误兜底：忽略跨域/无详情的脚本错误（预览 WebView 常见），
@@ -112,7 +112,7 @@
 
         <!-- 底部 -->
         <div class="footer">
-            QRecover v2.0.5 · Powered by Flask · 💻 Made with ❤️
+            QRecover v2.0.6 · Powered by Flask · 💻 Made with ❤️
         </div>
     </div>
 
@@ -131,20 +131,27 @@
             <button class="ai-close" id="aiClose" title="收起">✕</button>
         </div>
         <div class="ai-config" id="aiConfig">
-            <label>AI 模式</label>
+            <label>算力来源</label>
             <select id="cfgProvider">
                 <option value="heuristic">本地智能分析（无需联网，开箱即用）</option>
-                <option value="openai">LLM API（OpenAI 兼容）</option>
-                <option value="ollama">本地 Ollama</option>
+                <option value="openai">OpenAI</option>
+                <option value="deepseek">DeepSeek 深度求索</option>
+                <option value="dashscope">阿里云 通义千问</option>
+                <option value="zhipu">智谱 GLM</option>
+                <option value="moonshot">Moonshot Kimi</option>
+                <option value="qianfan">百度千帆</option>
+                <option value="ollama">本地 Ollama（本机运行）</option>
+                <option value="custom">自定义（OpenAI 兼容）</option>
             </select>
             <label>API 地址 (Base URL)</label>
-            <input id="cfgBaseUrl" placeholder="https://api.openai.com/v1" value="https://api.openai.com/v1">
+            <input id="cfgBaseUrl" placeholder="https://api.openai.com/v1">
             <label>模型名</label>
-            <input id="cfgModel" placeholder="gpt-3.5-turbo" value="gpt-3.5-turbo">
+            <input id="cfgModel" placeholder="gpt-3.5-turbo">
             <label>API Key</label>
             <input id="cfgApiKey" type="password" placeholder="sk-..." >
+            <div class="ai-hint" id="aiVendorHint"></div>
             <button class="ai-save" id="cfgSave">保存设置</button>
-            <div class="ai-hint">本地模式无需任何配置即可使用。配置 LLM 后，助手将获得更强的语义理解能力。API Key 仅保存在本地 ai_config.json。</div>
+            <div class="ai-hint">本地模式 / 本地 Ollama 无需任何配置即可使用。配置云端 LLM 后，助手将获得更强的语义理解能力。API Key 仅保存在本地 ai_config.json，不会上传。</div>
         </div>
         <div class="ai-messages" id="aiMessages">
             <div class="ai-msg bot">👋 你好！我是 QRecover 智能恢复助手。<br><br>请描述你遇到的数据丢失情况，例如：<br>· "我不小心把U盘格式化了，里面有旅行照片"<br>· "D盘分区打不开，提示未格式化"<br>· "误删了重要的Word文档"<br><br>我会帮你推荐最合适的恢复工具和步骤。</div>

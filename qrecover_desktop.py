@@ -168,7 +168,7 @@ class QRecoverAPI:
         return {"ok": True}
 
     def get_version(self):
-        return "QRecover Desktop v2.0.5"
+        return "QRecover Desktop v2.0.6"
 
     def open_external(self, url):
         import webbrowser
@@ -205,7 +205,7 @@ DESKTOP_BRIDGE_JS = """
     if (subtitle) subtitle.textContent = '桌面版 · 专业数据恢复工具集';
 
     var footer = document.querySelector('.footer');
-    if (footer) footer.innerHTML = 'QRecover Desktop v2.0.5 · Powered by Flask + WebView';
+    if (footer) footer.innerHTML = 'QRecover Desktop v2.0.6 · Powered by Flask + WebView';
 
     // 注入桌面端样式
     var style = document.createElement('style');
@@ -235,7 +235,7 @@ DESKTOP_BRIDGE_JS = """
         window.QRecoverDesktop.close();
     };
 
-    console.log('QRecover Desktop v2.0.5 启动完成');
+    console.log('QRecover Desktop v2.0.6 启动完成');
 })();
 """
 
@@ -282,7 +282,7 @@ window.events.loaded += on_loaded
 
 # ── 启动 ──
 if __name__ == '__main__':
-    log.info("QRecover Desktop v2.0.5 启动完成")
+    log.info("QRecover Desktop v2.0.6 启动完成")
 
     # 优先 Edge WebView2 (Windows 10/11 内置)，回退到 CEF
     gui_order = ['edgechromium', 'cef', 'mshtml']
