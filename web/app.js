@@ -125,8 +125,7 @@ let selectedDrive = null;
             const maxRetry = 3;
             for (let attempt = 1; attempt <= maxRetry; attempt++) {
                 try {
-                    const res = await fetch('/api/drives');
-                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    const res = await apiFetch('/api/drives', {}, { silent: true });
                     const drives = await res.json();
                     list.innerHTML = '';
 
@@ -135,6 +134,8 @@ let selectedDrive = null;
                         return;
                     }
 
+                    // DocumentFragment 批量构建，一次性插入（避免逐卡片触发布局）
+                    const frag = document.createDocumentFragment();
                     drives.forEach(d => {
                         const card = document.createElement('div');
                         card.className = 'drive-card' + (d.letter === prevSelected ? ' selected' : '');
@@ -151,8 +152,9 @@ let selectedDrive = null;
                             <div class="drive-bar"><div class="drive-bar-fill ${barClass}" style="width:${d.used}"></div></div>
                         `;
                         card.onclick = () => selectDrive(d.letter, card);
-                        list.appendChild(card);
+                        frag.appendChild(card);
                     });
+                    list.appendChild(frag);
                     return;
                 } catch (e) {
                     if (attempt < maxRetry) { await new Promise(r => setTimeout(r, 800)); continue; }
@@ -190,6 +192,28 @@ let selectedDrive = null;
             _toastTimer = setTimeout(() => el.classList.remove('show'), 4000);
         }
 
+        // ── 统一 API 请求：网络异常 Toast；非 2xx 抛出携带服务端错误信息的 Error ──
+        async function apiFetch(url, opts = {}, { silent = false } = {}) {
+            let res;
+            try {
+                res = await fetch(url, opts);
+            } catch (e) {
+                if (!silent) showToast('网络请求失败：' + e.message, 'error');
+                throw e;
+            }
+            if (!res.ok) {
+                let msg = 'HTTP ' + res.status;
+                try {
+                    const j = await res.clone().json();
+                    if (j && j.message) msg = j.message;
+                } catch (_) {}
+                const err = new Error(msg);
+                err.status = res.status;
+                throw err;
+            }
+            return res;
+        }
+
         // 显示状态消息
         let _statusAutoHide = null;
         function showStatus(type, msg) {
@@ -216,7 +240,7 @@ let selectedDrive = null;
             hideStatus();
 
             try {
-                const res = await fetch(`/api/scan?drive=${selectedDrive}&tool=${currentTool}`);
+                const res = await apiFetch(`/api/scan?drive=${selectedDrive}&tool=${currentTool}`);
                 const data = await res.json();
                 if (data.status === 'ok') {
                     showStatus('success', data.message);
@@ -224,7 +248,7 @@ let selectedDrive = null;
                     showStatus('error', data.message);
                 }
             } catch (e) {
-                showStatus('error', '网络请求失败：' + e.message);
+                showStatus('error', e.message);
             } finally {
                 // 不立即重置 isProcessing，等轮询检测到进程结束后重置
                 // 启动状态轮询
@@ -240,7 +264,7 @@ let selectedDrive = null;
             hideStatus();
 
             try {
-                const res = await fetch(`/api/recover?drive=${selectedDrive}&tool=${currentTool}`);
+                const res = await apiFetch(`/api/recover?drive=${selectedDrive}&tool=${currentTool}`);
                 const data = await res.json();
                 if (data.status === 'ok') {
                     showStatus('success', data.message);
@@ -248,7 +272,7 @@ let selectedDrive = null;
                     showStatus('error', data.message);
                 }
             } catch (e) {
-                showStatus('error', '网络请求失败：' + e.message);
+                showStatus('error', e.message);
             } finally {
                 // 不立即重置 isProcessing，等轮询检测到进程结束后重置
                 // 启动状态轮询
@@ -317,7 +341,7 @@ let selectedDrive = null;
             if (statusEl) { statusEl.className = 'setup-status working'; statusEl.textContent = '⏳ 正在下载并解压…'; }
             showSetupStatus('info', '正在下载 TestDisk / PhotoRec（约 20MB），请稍候…');
             try {
-                const res = await fetch('/api/testdisk/ensure', {
+                const res = await apiFetch('/api/testdisk/ensure', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ force: false })
@@ -347,7 +371,7 @@ let selectedDrive = null;
             if (statusEl) { statusEl.className = 'setup-status working'; statusEl.textContent = '⏳ 正在尝试安装…'; }
             showSetupStatus('info', '正在尝试自动安装 Recuva…');
             try {
-                const res = await fetch('/api/recuva/install', { method: 'POST' });
+                const res = await apiFetch('/api/recuva/install', { method: 'POST' });
                 const data = await res.json();
                 if (data.installed) {
                     setSetupCard('recuva', 'ready', '✅ 已就绪', true);
@@ -375,7 +399,7 @@ let selectedDrive = null;
         // 检查工具状态 + 刷新安装向导（合并原 refreshSetup）
         async function checkTools() {
             try {
-                const res = await fetch('/api/tools');
+                const res = await apiFetch('/api/tools', {}, { silent: true });
                 const tools = await res.json();
 
                 // 工具徽章
@@ -436,12 +460,16 @@ let selectedDrive = null;
             await checkTools();
             await loadDrives();
             // 初始检查一次进程状态
-            const res = await fetch('/api/status');
-            const data = await res.json();
-            if (data.status === 'busy') {
-                isProcessing = true;
-                updateButtons();
-                startStatusPolling();
+            try {
+                const res = await apiFetch('/api/status', {}, { silent: true });
+                const data = await res.json();
+                if (data.status === 'busy') {
+                    isProcessing = true;
+                    updateButtons();
+                    startStatusPolling();
+                }
+            } catch (e) {
+                console.warn('初始状态检查失败:', e);
             }
         }
 

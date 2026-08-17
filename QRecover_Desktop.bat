@@ -5,7 +5,7 @@ title QRecover Desktop - Build Tool
 cd /d "%~dp0"
 
 echo ========================================
-echo    QRecover Desktop Build Tool v2.0
+echo    QRecover Desktop Build Tool v2.0.4
 echo ========================================
 echo.
 echo  [1] Run Desktop (Dev Mode)

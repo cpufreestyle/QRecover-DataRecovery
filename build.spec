@@ -7,6 +7,12 @@ from pathlib import Path
 
 BASE = Path(SPECPATH)
 
+# 打包前压缩前端静态资源到 build/web_min（零依赖保守压缩，见 web_minify.py）
+sys.path.insert(0, str(BASE))
+import web_minify
+WEB_MIN = BASE / 'build' / 'web_min'
+web_minify.minify_to(str(BASE / 'web'), WEB_MIN)
+
 a = Analysis(
     ['qrecover_desktop.py'],
     pathex=[str(BASE)],
@@ -19,9 +25,8 @@ a = Analysis(
         # （见 qrecover.py ensure_testdisk / recuva 无感更新），以将 EXE 体积压到 100MB 内。
         ('qrecover_icon.ico', '.'),
         ('qrecover_icon.png', '.'),
-        # 前端静态资源（index.html / style.css / app.js / ai.js）
-        # qrecover.py 在 frozen 模式下从 sys._MEIPASS/web 读取
-        ('web', 'web'),
+        # 前端静态资源（打包用压缩版；qrecover.py 在 frozen 模式下从 sys._MEIPASS/web 读取）
+        (str(WEB_MIN), 'web'),
     ],
     hiddenimports=[
         'flask',
@@ -62,7 +67,7 @@ a = Analysis(
 )
 
 version_info = {
-    'version': '2.0.4',
+    'version': '2.0.5',
     'company_name': 'QRecover',
     'file_description': 'QRecover Desktop - Data Recovery Toolkit',
     'internal_name': 'QRecoverDesktop',

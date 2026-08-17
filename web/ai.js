@@ -29,7 +29,7 @@
         document.getElementById('cfgSave').onclick = saveAiConfig;
 
         function loadAiConfig() {
-            fetch('/api/ai/config').then(r => r.json()).then(cfg => {
+            apiFetch('/api/ai/config', {}, { silent: true }).then(r => r.json()).then(cfg => {
                 document.getElementById('cfgProvider').value = cfg.provider || 'heuristic';
                 document.getElementById('cfgBaseUrl').value = cfg.base_url || 'https://api.openai.com/v1';
                 document.getElementById('cfgModel').value = cfg.model || 'gpt-3.5-turbo';
@@ -45,7 +45,7 @@
                 model: document.getElementById('cfgModel').value,
                 api_key: document.getElementById('cfgApiKey').value,
             };
-            fetch('/api/ai/config', {
+            apiFetch('/api/ai/config', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(payload)
@@ -88,7 +88,7 @@
             else if (tool === 'photorec') url = '/api/recover?tool=testdisk';   // recover 路由的 testdisk = PhotoRec
             else url = '/api/recover?tool=' + tool;                              // recuva
             if (drive) url += '&drive=' + drive;
-            fetch(url).then(r => r.json()).then(res => {
+            apiFetch(url, {}, { silent: true }).then(r => r.json()).then(res => {
                 showToast(res.status === 'ok' ? res.message : ('启动失败：' + (res.message || '')),
                           res.status === 'ok' ? 'success' : 'error');
             }).catch(e => showToast('启动失败：' + e.message, 'error'));
@@ -123,11 +123,11 @@
 
             const body = JSON.stringify({ message: text, history: aiHistory });
             let full = '', lastRec = null;
-            fetch('/api/ai/chat/stream', {
+            apiFetch('/api/ai/chat/stream', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: body
-            }).then(r => {
+            }, { silent: true }).then(r => {
                 if (!r.ok || !r.body) throw new Error('流式接口异常');
                 const reader = r.body.getReader();
                 const decoder = new TextDecoder('utf-8');

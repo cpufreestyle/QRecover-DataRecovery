@@ -1,0 +1,23 @@
+# EditorConfig: https://editorconfig.org
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{py,js,css,html,json,md}]
+indent_size = 4
+
+# Windows 批处理必须使用 CRLF，否则某些语法（标签跳转等）会出问题
+[*.bat]
+end_of_line = crlf
+
+[*.yml]
+indent_size = 2
+
+[Makefile]
+indent_style = tab

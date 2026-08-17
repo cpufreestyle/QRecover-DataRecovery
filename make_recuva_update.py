@@ -25,25 +25,16 @@
     3) 之后应用启动会静默比对版本，发现更高版本即从 zip 免权限解压更新
 """
 import argparse
-import hashlib
 import json
 import os
 import sys
 import zipfile
 
-from version_utils import get_file_version
+from version_utils import get_file_version, sha256_of
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 PORTABLE = os.path.join(BASE, "recuva_portable")
 EXE = os.path.join(PORTABLE, "recuva.exe")
-
-
-def sha256_of(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def main():

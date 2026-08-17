@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""PE 文件版本号读取与比较（qrecover 与 make_recuva_update 共用）"""
+"""PE 文件版本号读取、比较与文件哈希（qrecover 与 make_recuva_update 共用）"""
 import ctypes
+import hashlib
 import os
 import sys
 from ctypes import wintypes
@@ -88,3 +89,15 @@ def parse_version(v):
     while len(parts) < 4:
         parts.append(0)
     return tuple(parts[:4])
+
+
+def sha256_of(path):
+    """计算文件 SHA256（小写 hex），失败返回 None"""
+    try:
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
+        return h.hexdigest().lower()
+    except Exception:
+        return None

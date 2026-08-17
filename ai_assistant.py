@@ -11,9 +11,14 @@ import threading
 import socket
 import urllib.request
 import urllib.error
+from typing import Any, Dict, Iterator, List, Optional
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, 'ai_config.json')
+
+# 单次 LLM 请求超时（秒）。流式首 token 通常 2~5s，本地推理可到 10s+；
+# 过长会让“服务未运行”场景的回退等待过久，配合 TCP 探活后 30s 足够。
+LLM_TIMEOUT = 30
 
 log = logging.getLogger(__name__)
 
@@ -40,7 +45,7 @@ class AIAssistant:
         self.config = self._load_config()
 
     # ── 配置 ──
-    def _load_config(self):
+    def _load_config(self) -> Dict[str, Any]:
         defaults = {
             "provider": "heuristic",      # heuristic | openai | ollama
             "api_key": "",
@@ -60,7 +65,7 @@ class AIAssistant:
             pass
         return defaults
 
-    def save_config(self, new_cfg: dict):
+    def save_config(self, new_cfg: dict) -> Dict[str, Any]:
         # 若切换到 ollama，自动补全 base_url
         if new_cfg.get('provider') == 'ollama' and not new_cfg.get('base_url'):
             new_cfg['base_url'] = self.config.get('ollama_base_url')
@@ -73,7 +78,7 @@ class AIAssistant:
             except Exception as e:
                 return {"ok": False, "error": str(e)}
 
-    def get_config(self):
+    def get_config(self) -> Dict[str, Any]:
         # 不返回 api_key 明文给前端
         safe = dict(self.config)
         safe['api_key'] = '******' if safe.get('api_key') else ''
@@ -126,7 +131,7 @@ class AIAssistant:
         }
 
     # ── 公开：仅做信号分析，返回推荐信息（供流式接口附加） ──
-    def recommend(self, message: str, context: dict = None):
+    def recommend(self, message: str, context: dict = None) -> Dict[str, Any]:
         s = self._detect(message, context)
         return {
             "tools": s["recommend_tools"],
@@ -135,7 +140,7 @@ class AIAssistant:
         }
 
     # ── 主入口（流式，yield 文本分片） ──
-    def chat_stream(self, message: str, history=None, context: dict = None):
+    def chat_stream(self, message: str, history=None, context: dict = None) -> Iterator[str]:
         if not message or not message.strip():
             yield "请描述你遇到的数据丢失情况，例如：'我不小心把U盘格式化了，里面有旅行照片'。"
             return
@@ -409,8 +414,13 @@ class AIAssistant:
         # 本地推理服务（LM Studio / Ollama，通常跑在 localhost）必须绕过系统 HTTP 代理，
         # 否则 urllib 会把请求转给代理（如 Clash），代理无法回环访问而返回 502 Bad Gateway。
         from urllib.parse import urlparse
-        host = (urlparse(url).hostname or '').lower()
+        parsed = urlparse(url)
+        host = (parsed.hostname or '').lower()
         use_proxy_bypass = host in ('localhost', '127.0.0.1', '::1')
+        # 本地服务先做 TCP 探活（1s）：LM Studio/Ollama 未运行时立即回退启发式，
+        # 避免经历多次 × 30s 的连接超时（实测 ~18s+ 才能返回兜底回复）。
+        if use_proxy_bypass and not self._probe_tcp(host, parsed.port or 80):
+            raise ConnectionError(f"本地推理服务未运行：{host}:{parsed.port or 80}")
         for attempt in range(3):   # 重试 2 次
             try:
                 req = urllib.request.Request(
@@ -421,9 +431,9 @@ class AIAssistant:
                 if use_proxy_bypass:
                     resp = urllib.request.build_opener(
                         urllib.request.ProxyHandler({})
-                    ).open(req, timeout=30)
+                    ).open(req, timeout=LLM_TIMEOUT)
                 else:
-                    resp = urllib.request.urlopen(req, timeout=30)
+                    resp = urllib.request.urlopen(req, timeout=LLM_TIMEOUT)
                 return resp
             except Exception as e:
                 last_err = e
@@ -432,6 +442,15 @@ class AIAssistant:
                     break  # 鉴权/地址错误不必重试
                 time.sleep(1.0 * (attempt + 1))
         raise last_err if last_err else RuntimeError("未知错误")
+
+    @staticmethod
+    def _probe_tcp(host, port, timeout=1.0):
+        """TCP 探活：端口可连返回 True（服务可能在线），连接失败返回 False"""
+        try:
+            with socket.create_connection((host, port), timeout=timeout):
+                return True
+        except OSError:
+            return False
 
     def _llm_chat(self, message, history, context, signals):
         payload = {

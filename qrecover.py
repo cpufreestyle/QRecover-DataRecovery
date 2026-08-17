@@ -12,10 +12,11 @@ import threading
 import time
 import json
 import tempfile
+from typing import Any, Dict, List, Optional, Tuple
 from flask import Flask, request, jsonify, Response
 
 from ai_assistant import assistant as ai_assistant
-from version_utils import get_file_version, parse_version
+from version_utils import get_file_version, parse_version, sha256_of as _sha256_of
 
 # ── Windows 控制台 UTF-8（修复中文乱码）──
 try:
@@ -26,7 +27,7 @@ try:
 except Exception:
     pass
 
-def _decode_cli(raw):
+def _decode_cli(raw: bytes) -> str:
     """将子进程（tasklist/wmic/powershell/testdisk 等）输出的字节安全解码为文本。
 
     开发机通常通过 .bat 设置 chcp 65001（UTF-8 控制台），而 PyInstaller 冻结的
@@ -99,7 +100,7 @@ def ensure_single_instance():
 _ACTIVE_PROCESS = None  # 可以是 subprocess.Popen 对象，或 None
 _ACTIVE_PROCESS_LOCK = threading.Lock()
 
-def _check_and_clear_process():
+def _check_and_clear_process() -> None:
     """检查全局进程是否还在运行，如果已结束则清除（线程安全）"""
     global _ACTIVE_PROCESS
     with _ACTIVE_PROCESS_LOCK:
@@ -109,7 +110,7 @@ def _check_and_clear_process():
                 if _ACTIVE_PROCESS.poll() is not None:
                     _ACTIVE_PROCESS = None
 
-def run_tool(exe_path, work_dir=None):
+def run_tool(exe_path: str, work_dir: Optional[str] = None) -> bool:
     """启动工具，自动处理 UAC 提权。同一时间只能有一个进程。"""
     global _ACTIVE_PROCESS
     
@@ -133,47 +134,58 @@ def run_tool(exe_path, work_dir=None):
             _ACTIVE_PROCESS = proc
     except OSError as e:
         if getattr(e, 'winerror', None) == 740 or '740' in str(e):
-            # WinError 740 = 需要提权，用 ShellExecuteW 触发 UAC
-            ret = ctypes.windll.shell32.ShellExecuteW(
-                None, "runas", exe_path, None,
-                work_dir or os.path.dirname(exe_path), 1
-            )
-            if ret <= 32:
-                raise RuntimeError(f"UAC 提权失败 (ShellExecuteW 返回 {ret})")
-            # ShellExecuteW 成功，但无法获取进程句柄
-            # 用后台线程定期检测进程是否存在（按 exe 文件名）
+            # WinError 740 = 需要提权，用 ShellExecuteExW 触发 UAC 并取回进程句柄
+            handle = _shell_run_elevated(exe_path, work_dir or os.path.dirname(exe_path))
             with _ACTIVE_PROCESS_LOCK:
-                _ACTIVE_PROCESS = True  # 哨兵值，表示有进程但无法追踪
-            _start_process_watcher(os.path.basename(exe_path))
+                _ACTIVE_PROCESS = True  # 哨兵值，watcher 线程负责清除
+            _start_process_watcher(handle)
         else:
             raise
     return True
 
-def _start_process_watcher(exe_name):
-    """后台线程：定期检测指定 exe 是否还在运行，退出时清除锁"""
+def _shell_run_elevated(exe_path: str, work_dir: str) -> int:
+    """ShellExecuteExW(runas) 提权启动，返回子进程句柄（SEE_MASK_NOCLOSEPROCESS）"""
+    class SHELLEXECUTEINFOW(ctypes.Structure):
+        _fields_ = [
+            ("cbSize", ctypes.c_ulong),
+            ("fMask", ctypes.c_ulong),
+            ("hwnd", ctypes.c_void_p),
+            ("lpVerb", ctypes.c_wchar_p),
+            ("lpFile", ctypes.c_wchar_p),
+            ("lpParameters", ctypes.c_wchar_p),
+            ("lpDirectory", ctypes.c_wchar_p),
+            ("nShow", ctypes.c_int),
+            ("hInstApp", ctypes.c_void_p),
+            ("lpIDList", ctypes.c_void_p),
+            ("lpClass", ctypes.c_wchar_p),
+            ("hkeyClass", ctypes.c_void_p),
+            ("dwHotKey", ctypes.c_ulong),
+            ("hIconOrMonitor", ctypes.c_void_p),
+            ("hProcess", ctypes.c_void_p),
+        ]
+    SEE_MASK_NOCLOSEPROCESS = 0x00000040
+    SW_SHOWNORMAL = 1
+    info = SHELLEXECUTEINFOW()
+    info.cbSize = ctypes.sizeof(SHELLEXECUTEINFOW)
+    info.fMask = SEE_MASK_NOCLOSEPROCESS
+    info.lpVerb = "runas"
+    info.lpFile = exe_path
+    info.lpDirectory = work_dir
+    info.nShow = SW_SHOWNORMAL
+    if not ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(info)):
+        raise RuntimeError("UAC 提权失败（ShellExecuteExW 返回失败，可能被用户取消）")
+    return info.hProcess
+
+def _start_process_watcher(handle: int) -> None:
+    """后台线程：阻塞等待提权进程句柄退出（零轮询），退出时清除锁并关句柄"""
     def watcher():
         global _ACTIVE_PROCESS
-        while True:
-            time.sleep(3)
-            # 检查进程是否还在运行
-            try:
-                proc = subprocess.Popen(
-                    ['tasklist', '/fi', f'IMAGENAME eq {exe_name}', '/nh', '/fo', 'csv'],
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                )
-                out, _ = proc.communicate(timeout=5)
-                if isinstance(out, bytes):
-                    out = _decode_cli(out)
-                # 如果 tasklist 输出不包含 exe 名，说明进程已退出
-                if exe_name.lower() not in out.lower():
-                    with _ACTIVE_PROCESS_LOCK:
-                        _ACTIVE_PROCESS = None
-                    break
-            except Exception:
-                with _ACTIVE_PROCESS_LOCK:
-                    _ACTIVE_PROCESS = None
-                break
+        try:
+            ctypes.windll.kernel32.WaitForSingleObject(handle, 0xFFFFFFFF)  # INFINITE
+        finally:
+            with _ACTIVE_PROCESS_LOCK:
+                _ACTIVE_PROCESS = None
+            ctypes.windll.kernel32.CloseHandle(handle)
     t = threading.Thread(target=watcher, daemon=True)
     t.start()
 
@@ -246,7 +258,7 @@ _updater_started = False
 
 IS_WIN = sys.platform == "win32"
 
-APP_VERSION = "2.0.4"
+APP_VERSION = "2.0.5"
 
 # 前端静态资源目录（源码运行：web/；PyInstaller onefile：解包目录内 web/）
 if getattr(sys, 'frozen', False):
@@ -275,7 +287,7 @@ def index():
     return app.send_static_file('index.html')
 
 # ─────────── Helpers ───────────
-def get_drives():
+def get_drives() -> List[Dict[str, str]]:
     """获取 Windows 驱动器列表"""
     drives = []
     if IS_WIN:
@@ -294,11 +306,156 @@ def get_drives():
                     pass
     return drives
 
-def find_recuva():
-    """查找 Recuva 可执行文件"""
-    for path in RECUVAPATHS:
-        if os.path.isfile(path):
-            return path
+def _find_recuva_in_registry() -> Optional[str]:
+    """通过注册表查找 Recuva 可执行文件路径（适用于安装版）"""
+    if not IS_WIN:
+        return None
+    try:
+        import winreg
+    except ImportError:
+        return None
+
+    # 常见注册表键：App Paths 直接指向可执行文件
+    app_paths = [
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\Recuva.exe"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\recuva.exe"),
+        (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\Recuva.exe"),
+    ]
+    for hkey, subkey in app_paths:
+        try:
+            with winreg.OpenKey(hkey, subkey, 0, winreg.KEY_READ) as key:
+                value, _ = winreg.QueryValueEx(key, None)
+                if value and os.path.isfile(value):
+                    return value
+        except OSError:
+            pass
+
+    # Piriform 软件自身注册表键，常包含 ProgramPath / Path
+    piriform_keys = [
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Piriform\Recuva"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Piriform\Recuva"),
+        (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Piriform\Recuva"),
+    ]
+    for hkey, subkey in piriform_keys:
+        try:
+            with winreg.OpenKey(hkey, subkey, 0, winreg.KEY_READ) as key:
+                for value_name in ("ProgramPath", "Path", "InstallLocation", "ExePath"):
+                    try:
+                        value, _ = winreg.QueryValueEx(key, value_name)
+                        if value:
+                            cand = value if value.lower().endswith(".exe") else os.path.join(value, "Recuva.exe")
+                            if os.path.isfile(cand):
+                                return cand
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+
+    # Uninstall 键：通过 DisplayName 匹配，再取 InstallLocation
+    uninstall_roots = [
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+    ]
+    for hkey, root in uninstall_roots:
+        try:
+            with winreg.OpenKey(hkey, root, 0, winreg.KEY_READ) as root_key:
+                i = 0
+                while True:
+                    try:
+                        subkey_name = winreg.EnumKey(root_key, i)
+                        i += 1
+                        with winreg.OpenKey(root_key, subkey_name, 0, winreg.KEY_READ) as subkey:
+                            try:
+                                display_name, _ = winreg.QueryValueEx(subkey, "DisplayName")
+                                if not display_name or "recuva" not in display_name.lower():
+                                    continue
+                            except OSError:
+                                continue
+                            for value_name in ("InstallLocation", "UninstallString"):
+                                try:
+                                    value, _ = winreg.QueryValueEx(subkey, value_name)
+                                    if not value:
+                                        continue
+                                    # UninstallString 通常是 uninstaller 路径，取所在目录
+                                    base = value.strip('"')
+                                    if base.lower().endswith(".exe"):
+                                        base = os.path.dirname(base)
+                                    cand = os.path.join(base, "Recuva.exe")
+                                    if os.path.isfile(cand):
+                                        return cand
+                                except OSError:
+                                    pass
+                    except OSError:
+                        break
+        except OSError:
+            pass
+    return None
+
+
+def _find_recuva_in_path() -> Optional[str]:
+    """在 PATH 中查找 recuva.exe（用户手动添加过的情况）"""
+    if not IS_WIN:
+        return None
+    try:
+        result = subprocess.run(
+            ["where", "recuva.exe"],
+            capture_output=True, text=True, timeout=10, check=False
+        )
+        if result.returncode == 0:
+            first = result.stdout.strip().splitlines()[0].strip()
+            if first and os.path.isfile(first):
+                return first
+    except Exception:
+        pass
+    return None
+
+
+def _normalize_recuva_exe(path: str) -> str:
+    """若找到的是 recuva64.exe，且同目录存在 recuva.exe，优先返回 recuva.exe。
+    Recuva 在 64 位系统上会通过 recuva.exe 自动启动 64 位版本，
+    因此调用 recuva.exe 更符合官方入口习惯。"""
+    if not path:
+        return path
+    path = os.path.abspath(path)
+    if os.path.basename(path).lower() == "recuva64.exe":
+        plain = os.path.join(os.path.dirname(path), "recuva.exe")
+        if os.path.isfile(plain):
+            return plain
+    return path
+
+
+def find_recuva() -> Optional[str]:
+    """查找 Recuva 可执行文件（安装版、便携版、PATH、注册表全覆盖）"""
+    # 1) 注册表（安装版最可靠）
+    path = _find_recuva_in_registry()
+    if path:
+        return _normalize_recuva_exe(path)
+
+    # 2) 常见固定路径（含 Piriform 官方默认目录，同时兼容 recuva64.exe）
+    candidates = []
+    for base in RECUVAPATHS + [
+        r"C:\Program Files\Piriform\Recuva",
+        r"C:\Program Files (x86)\Piriform\Recuva",
+    ]:
+        if base.lower().endswith(".exe"):
+            candidates.append(base)
+            base_dir = os.path.dirname(base)
+        else:
+            base_dir = base
+        candidates.append(os.path.join(base_dir, "recuva.exe"))
+        candidates.append(os.path.join(base_dir, "Recuva.exe"))
+        candidates.append(os.path.join(base_dir, "recuva64.exe"))
+        candidates.append(os.path.join(base_dir, "Recuva64.exe"))
+    for p in candidates:
+        if os.path.isfile(p):
+            return _normalize_recuva_exe(p)
+
+    # 3) PATH 环境变量
+    path = _find_recuva_in_path()
+    if path:
+        return _normalize_recuva_exe(path)
+
     return None
 
 # ─────────── API ───────────
@@ -350,7 +507,7 @@ def api_recuva_install():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 # ─────────── Recuva 无感自动更新 ───────────
-def log_recuva_update(msg):
+def log_recuva_update(msg: str) -> None:
     """记录更新日志（无感，不打断界面）"""
     try:
         ts = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -360,9 +517,16 @@ def log_recuva_update(msg):
         pass
 
 
-def get_recuva_local_version():
-    exe = os.path.join(RECUVAPORTABLE, "recuva.exe")
-    v = get_file_version(exe)
+def get_recuva_local_version() -> Optional[str]:
+    """读取本地 Recuva 版本号（优先从实际检测到的 exe 读取 PE 版本）"""
+    exe = find_recuva()
+    if exe:
+        v = get_file_version(exe)
+        if v:
+            return v
+    # 回退：便携版目录 / 版本文件
+    fallback_exe = os.path.join(RECUVAPORTABLE, "recuva.exe")
+    v = get_file_version(fallback_exe)
     if v:
         return v
     try:
@@ -374,7 +538,7 @@ def get_recuva_local_version():
     return None
 
 
-def _download_file(url, dest, retries=3):
+def _download_file(url: str, dest: str, retries: int = 3) -> None:
     # 本地文件路径（无 scheme，绝对或相对）：直接复制，支持 clone 后任意目录
     if "://" not in url and os.path.isfile(url):
         shutil.copyfile(url, dest)
@@ -409,7 +573,7 @@ _TESTDISK_DOWNLOADING = False
 _TESTDISK_DOWNLOAD_LOCK = threading.Lock()
 
 
-def ensure_testdisk(force=False):
+def ensure_testdisk(force: bool = False) -> Tuple[bool, str]:
     """确保 TestDisk/PhotoRec 已就绪（首次用时按需联网下载官方压缩包并解压）。
 
     返回 (ok: bool, message: str)。ok=False 时 message 提示用户手动下载。
@@ -476,19 +640,7 @@ def api_ensure_testdisk():
                     "ready": ok and os.path.isfile(TESTDISK_EXE)})
 
 
-def _sha256_of(path):
-    """计算文件 SHA256，失败返回 None"""
-    try:
-        h = __import__("hashlib").sha256()
-        with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(65536), b""):
-                h.update(chunk)
-        return h.hexdigest().lower()
-    except Exception:
-        return None
-
-
-def _load_manifest():
+def _load_manifest() -> Tuple[Optional[str], Optional[str], Optional[str], str]:
     """拉取更新清单，返回 (version, url, sha256, pkg_type)。
 
     优先级（均支持运行时通过环境变量覆盖）：
@@ -531,7 +683,7 @@ def _load_manifest():
     return None, None, None, "exe"
 
 
-def _obtain_installer(tmp):
+def _obtain_installer(tmp: str) -> Tuple[Optional[str], Optional[str]]:
     """获取一个可用的 Recuva 安装包路径（优先清单/直链，回退内置安装器）。
 
     返回 (installer_path, pkg_type) ；都不行则返回 (None, None)。
@@ -560,7 +712,7 @@ def _obtain_installer(tmp):
     return None, None
 
 
-def _copy_recuva_files(new_exe, install_dir):
+def _copy_recuva_files(new_exe: str, install_dir: str) -> None:
     base = os.path.dirname(new_exe)
     # 复制主程序与组件；跳过大小异常（<1MB）的文件，防止坏文件污染
     targets = ["recuva.exe", "recuva64.exe", "RecuvaShell64.dll", "uninst.exe"]
@@ -580,7 +732,7 @@ def _copy_recuva_files(new_exe, install_dir):
                 shutil.copy2(s, os.path.join(lang_dst, f))
 
 
-def recuva_auto_update_check(force=False):
+def recuva_auto_update_check(force: bool = False) -> Dict[str, Any]:
     """后台静默检查并更新 Recuva。
 
     返回 dict：{"action": "updated"|"uptodate"|"skipped"|"error",
@@ -686,7 +838,7 @@ def recuva_auto_update_check(force=False):
     return result
 
 
-def start_recuva_updater():
+def start_recuva_updater() -> None:
     """启动无感更新后台线程（仅启动一次）"""
     global _updater_started
     if _updater_started:
@@ -811,7 +963,7 @@ def api_recover():
     return jsonify({"status": "error", "message": "Invalid tool specified"})
 
 # ─────────── AI 智能恢复助手 ───────────
-def _build_ai_context():
+def _build_ai_context() -> Dict[str, Any]:
     """构建 AI 对话所需的运行环境上下文"""
     context = {"tools": ["photorec"], "drives": []}
     if os.path.isfile(TESTDISK_EXE):
@@ -894,7 +1046,7 @@ def api_ai_config():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 # ─────────── 端口自动选择 ───────────
-def find_free_port(preferred=5000):
+def find_free_port(preferred: int = 5000) -> int:
     """优先使用 preferred 端口；若被占用（如 WinError 10013）则让系统分配空闲端口。"""
     import socket
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -916,13 +1068,13 @@ def find_free_port(preferred=5000):
 
 
 # ─────────── Main ───────────
-def main():
+def main() -> None:
     # 单实例检测：确保只有一个进程
     mutex = ensure_single_instance()
     # 启动 Recuva 无感自动更新（后台线程，不打断界面）
     start_recuva_updater()
     port = find_free_port(5000)
-    print("Starting QRecover Web UI v2.0.4...")
+    print("Starting QRecover Web UI v2.0.5...")
     print("Open browser at: http://127.0.0.1:%d" % port)
     try:
         app.run(host='127.0.0.1', port=port, debug=False)

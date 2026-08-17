@@ -37,7 +37,9 @@ QRecover/
 ├── web/                     # 前端静态资源（index.html / style.css / app.js / ai.js）
 ├── qrecover_desktop.py      # 桌面壳（pywebview 封装）
 ├── ai_assistant.py          # 本地规则 + LLM 恢复建议
-├── version_utils.py         # PE 文件版本号读取（共用工具模块）
+├── version_utils.py         # PE 文件版本号读取 / SHA256（共用工具模块）
+├── web_minify.py            # 打包前压缩前端资源（build.spec 自动调用）
+├── run_dev_server.py        # 开发用：5055 端口启动 Web 服务
 ├── make_recuva_update.py    # 构建 Recuva 更新包
 ├── QRecover_Desktop.bat     # Windows 桌面启动器
 ├── build.spec               # PyInstaller 打包配置
@@ -55,12 +57,19 @@ QRecover/
 
 ## 🎯 版本历史
 
+### v2.0.5 — Recuva 安装检测增强 🔍
+- 修复 Recuva 已安装但界面仍显示"未安装"的问题
+- 增强 `find_recuva()`：支持注册表（App Paths / Piriform / Uninstall）、PATH 环境变量、Piriform 官方默认目录
+- 同时兼容 `recuva.exe` 与 `recuva64.exe`，找到 64 位版本时优先返回官方入口 `recuva.exe`
+- 版本号读取跟随实际检测到的 Recuva 路径
+
 ### v2.0.4 — 全面优化 🚀
 - **代码结构**：前端 HTML/CSS/JS 从 `qrecover.py` 剥离为独立静态文件（`web/`），主程序从 2400+ 行瘦身至 ~900 行
-- **去重复**：PE 版本号读取抽取为 `version_utils.py` 公共模块（qrecover 与 make_recuva_update 共用）
-- **性能**：桌面启动等待从固定 1s 改为端口轮询（窗口弹出更快）；`/api/drives` 加短缓存；页面不可见时暂停驱动器轮询；静态资源支持 ETag/304 协商缓存
-- **打包**：`web/` 静态资源纳入 PyInstaller datas；扩充 excludes（pydoc_data/lib2to3）；`pyinstaller` 移出运行时依赖
-- **体验**：AI 面板阻塞式 `alert()` 改为轻量 Toast；桌面版外链走 WebView 桥接打开；成功状态消息 8s 自动淡出
+- **去重复**：PE 版本号读取/SHA256 抽取为 `version_utils.py` 公共模块；LLM 本地服务增加 TCP 探活，未运行时秒级回退启发式（原 ~18s）
+- **性能**：桌面启动等待从固定 1s 改为端口轮询（窗口弹出更快）；`/api/drives` 加短缓存；页面不可见时暂停驱动器轮询；静态资源支持 ETag/304 协商缓存；UAC 提权进程改用句柄等待（零 tasklist 轮询）
+- **打包**：`web/` 静态资源纳入 PyInstaller datas，构建时经 `web_minify.py` 零依赖压缩（CSS/JS 体积 ~60-70%）；扩充 excludes；`pyinstaller` 移出运行时依赖
+- **体验**：AI 面板阻塞式 `alert()` 改为轻量 Toast；前端统一 `apiFetch()` 错误边界（网络异常 Toast + 服务端错误信息透传）；桌面版外链走 WebView 桥接打开；成功状态消息 8s 自动淡出；驱动器卡片 DocumentFragment 批量渲染
+- **工程**：新增 `.editorconfig` 统一行尾；`run_dev_server.py` 开发启动脚本；批处理版本号统一
 
 ### v2.0.3 — 一键安装向导 + 体验优化 🛠️
 - 新增「首次使用·一键安装恢复引擎」向导（TestDisk/PhotoRec/Recuva 自动下载）
